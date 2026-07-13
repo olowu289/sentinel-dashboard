@@ -12,7 +12,7 @@ Buyer-facing Terra dashboard: multi-tower Sentinel console over the **Kallon Pla
 **Standalone clone** (Artemis, CI, or one-repo checkout):
 
 ```bash
-git clone https://github.com/Yaqcodes/sentinel-dashboard.git
+git clone https://github.com/olowu289/sentinel-dashboard.git
 cd sentinel-dashboard
 npm install   # pulls @sentinel/sdk from GitHub and builds it
 npm run dev
