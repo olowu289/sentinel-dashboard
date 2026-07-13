@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Terra buyer dashboard — multi-tower Sentinel console over the Platform API",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/olowu289/sentinel-dashboard.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
