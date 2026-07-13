@@ -11,7 +11,11 @@ export default function App() {
 
   const ctx = useMemo(() => {
     if (!session) return null;
-    const client = new SentinelClient(session.baseUrl, { apiKey: session.apiKey });
+    const client = new SentinelClient(session.baseUrl, {
+      apiKey: session.apiKey,
+      // Bound fetch — required in browsers when SDK default was unbound (Illegal invocation).
+      fetch: (input, init) => globalThis.fetch(input, init),
+    });
     return {
       client,
       session,

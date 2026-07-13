@@ -14,7 +14,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@sentinel/sdk": "git+https://github.com/Yaqcodes/sentinel-sdk.git#main",
+    "@sentinel/sdk": "github:Yaqcodes/sentinel-sdk#2096195",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
