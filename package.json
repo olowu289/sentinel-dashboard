@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@sentinel/sdk": "file:../sentinel-sdk/typescript",
+    "@sentinel/sdk": "git+https://github.com/Yaqcodes/sentinel-sdk.git#main",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

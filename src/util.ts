@@ -1,6 +1,10 @@
 import { colors } from './tokens';
 import type { AlertLevel, Sensor, SensorLevel } from './types';
 
+export function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 const RANK: Record<SensorLevel, number> = { ok: 0, warn: 1, crit: 2 };
 
 /** Worst level across the sensors that are actually available on this tower. */

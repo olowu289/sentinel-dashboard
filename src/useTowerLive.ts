@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { StreamsResponse } from '@sentinel/sdk';
+import type { StreamsResponse, StreamPath } from '@sentinel/sdk';
 import type { StatusResponse } from './apiTypes';
 import type { Camera, AlertEvent } from './types';
 import { usePlatform } from './platformContext';
@@ -107,7 +107,7 @@ export function useTowerLive(deviceId: string): TowerLive {
     const pollSnaps = async () => {
       for (let cam = 1; cam <= CAM_COUNT; cam++) {
         const path = `cam${cam}`;
-        const ready = streams?.paths?.find((p) => p.name === path)?.ready;
+        const ready = streams?.paths?.find((p: StreamPath) => p.name === path)?.ready;
         if (streams && !ready) continue;
         try {
           const blob = await client.snapshot(deviceId, cam);
@@ -155,14 +155,14 @@ export function useTowerLive(deviceId: string): TowerLive {
     return () => es?.close();
   }, [client, session.customerId, deviceId, enabled]);
 
-  const readyByPath = new Map((streams?.paths ?? []).map((p) => [p.name, !!p.ready]));
+  const readyByPath = new Map((streams?.paths ?? []).map((p: StreamPath) => [p.name, !!p.ready]));
 
   const cameras = defaultCameras().map((c) => {
     const ready = readyByPath.get(c.path);
     let cstatus: Camera['status'] = 'STANDBY';
     if (streams?.available) cstatus = ready ? 'ONLINE' : 'OFFLINE';
     const pos = ptz[c.id];
-    const rec = !!streams?.paths?.find((p) => p.name === c.path && p.readers > 0);
+    const rec = !!streams?.paths?.find((p: StreamPath) => p.name === c.path && p.readers > 0);
     return {
       ...c,
       status: cstatus,

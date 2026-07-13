@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { colors, font } from '../tokens';
-import { health, levelColor } from '../util';
+import { health, levelColor, errMsg } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { useTowerLive } from '../useTowerLive';
@@ -87,7 +87,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   }, [client, deviceId, selectedCam, camNum]);
 
   const nudge = useCallback((dir: PanDir) => {
-    void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg('move ok')).catch((e) => setPtzMsg(`move failed: ${e.message}`));
+    void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg('move ok')).catch((e: unknown) => setPtzMsg(`move failed: ${errMsg(e)}`));
   }, [sendMove]);
 
   const panStart = useCallback((dir: PanDir) => {
@@ -114,7 +114,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
   const zoomBy = useCallback((d: number) => {
     const dir = d > 0 ? 1 : -1;
-    void sendMove(null, dir, PTZ_PULSE_SEC).then(() => setPtzMsg('zoom ok')).catch((e) => setPtzMsg(`zoom failed: ${e.message}`));
+    void sendMove(null, dir, PTZ_PULSE_SEC).then(() => setPtzMsg('zoom ok')).catch((e: unknown) => setPtzMsg(`zoom failed: ${errMsg(e)}`));
   }, [sendMove]);
 
   const captureSnapshot = useCallback(async (camId: string) => {
@@ -136,7 +136,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const recenter = useCallback(() => {
     void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01'), home: true })
       .then(() => setPtzMsg('home ok'))
-      .catch((e) => setPtzMsg(`home failed: ${e.message}`));
+      .catch((e: unknown) => setPtzMsg(`home failed: ${errMsg(e)}`));
   }, [client, deviceId, selectedCam, camNum]);
 
   useEffect(() => {

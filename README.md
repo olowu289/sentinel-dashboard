@@ -5,14 +5,24 @@ Buyer-facing Terra dashboard: multi-tower Sentinel console over the **Kallon Pla
 ## Stack
 
 - Vite + React + TypeScript
-- [`@sentinel/sdk`](../sentinel-sdk/typescript) — Platform API client
+- [`@sentinel/sdk`](https://github.com/Yaqcodes/sentinel-sdk) — Platform API client (installed from GitHub on `npm install`)
 
 ## Development
 
+**Standalone clone** (Artemis, CI, or one-repo checkout):
+
 ```bash
-cd sentinel-sdk/typescript && npm install && npm run build
-cd ../../sentinel-dashboard
-npm install
+git clone https://github.com/Yaqcodes/sentinel-dashboard.git
+cd sentinel-dashboard
+npm install   # pulls @sentinel/sdk from GitHub and builds it
+npm run dev
+```
+
+**Local sibling checkout** (faster SDK iteration — optional):
+
+```bash
+# package.json uses the git dependency by default; for live SDK edits:
+npm install ../sentinel-sdk/typescript
 npm run dev
 ```
 
@@ -29,6 +39,8 @@ Sign in with:
 ## Production (Artemis)
 
 ```bash
+git pull
+npm install
 npm run build
 # Serve dist/ behind nginx on Artemis; proxy /v1 to enrollment-api
 ```

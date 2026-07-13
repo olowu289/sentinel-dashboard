@@ -1,3 +1,4 @@
+import type { StreamPath } from '@sentinel/sdk';
 import type { Camera, Sensor, SensorGroup, SensorLevel } from './types';
 import type { StatusResponse, StreamsResponse } from './apiTypes';
 
@@ -94,7 +95,7 @@ export function buildSensors(
 
   // -- CAMERAS (mediamtx readiness) --
   const ready = new Map<string, boolean>();
-  (streams?.paths ?? []).forEach((p) => ready.set(p.name, !!p.ready));
+  (streams?.paths ?? []).forEach((p: StreamPath) => ready.set(p.name, !!p.ready));
   const items = cameras.map((c) => ({ label: c.path, up: ready.get(c.path) ?? false }));
   const live = items.filter((it) => it.up).length;
   const anyDown = items.some((it) => !it.up);
