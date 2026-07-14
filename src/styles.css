@@ -52,13 +52,17 @@ body {
 .console.collapsed .control { display: none; }
 .grid {
   display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
-  gap: 14px; min-height: 0;
+  gap: 14px; min-height: 0; position: relative;
 }
 .feed { border: 1px solid #232c34; border-radius: 5px; min-height: 180px; transition: border-color .18s; }
 .feed:hover { border-color: #3a4650; }
 .feed-loading {
-  grid-column: 1 / -1; display: flex; align-items: center; justify-content: center;
+  position: absolute; inset: 0; z-index: 4;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  background: rgba(6, 9, 11, .55);
   color: #77828c; font-size: 13px; letter-spacing: .12em;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* ---- spotlight: one feed big, the rest a filmstrip below ---- */

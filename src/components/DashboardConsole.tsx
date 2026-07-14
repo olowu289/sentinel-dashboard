@@ -162,7 +162,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         <div className="pills">
           <span className="pill">
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? ACCENT : colors.offline, boxShadow: `0 0 8px ${connected ? ACCENT : colors.offline}` }} />
-            API <b>{connected ? 'OK' : 'OFFLINE'}</b>
+            TOWER <b>{connected ? 'OK' : 'OFFLINE'}</b>
           </span>
         </div>
         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
@@ -180,7 +180,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
         <section className={`grid${spotlight ? ' spotlight' : ''}`}>
           {!connected && cameras.every((c) => c.status === 'STANDBY') && (
-            <div className="feed-loading">connecting via platform API…</div>
+            <div className="feed-loading" role="status">Tower unreachable via hub</div>
           )}
           {cameras.map((c) => (
             <TowerFeed

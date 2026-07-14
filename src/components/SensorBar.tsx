@@ -46,7 +46,7 @@ export default function SensorBar({ sensors, deviceName, connected, onOpenDetail
       <div className="sb-right">
         <span className="sb-live">
           <span className="sb-live-dot" style={{ background: connected ? colors.accent : colors.offline, boxShadow: `0 0 8px ${connected ? colors.accent : colors.offline}` }} />
-          {connected ? 'LIVE' : 'OFFLINE'}
+          {connected ? 'TOWER LIVE' : 'TOWER OFFLINE'}
         </span>
         <button className="sb-more" onClick={onOpenDetail} aria-label="Open sensor detail panel" title="Sensor details">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
