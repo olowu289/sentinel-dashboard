@@ -7,7 +7,6 @@ import { alertToEvent } from './session';
 
 const STREAMS_MS = 3000;
 const STATUS_MS = 2000;
-const SNAPSHOT_MS = 2500;
 const PTZ_MS = 2000;
 const CAM_COUNT = 4;
 
@@ -17,7 +16,8 @@ export interface TowerLive {
   connected: boolean;
   cameras: Camera[];
   alerts: AlertEvent[];
-  snapshotUrls: Record<string, string>;
+  /** Platform HLS playlist URLs keyed by camera id ("01"…"04"). */
+  hlsUrls: Record<string, string>;
 }
 
 function defaultCameras(): Camera[] {
@@ -41,6 +41,11 @@ function defaultCameras(): Camera[] {
   });
 }
 
+function playlistUrl(baseUrl: string, deviceId: string, camera: number): string {
+  const base = baseUrl.replace(/\/$/, '');
+  return `${base}/v1/towers/${encodeURIComponent(deviceId)}/live/cam${camera}/index.m3u8`;
+}
+
 export function useTowerLive(deviceId: string): TowerLive {
   const enabled = !!deviceId;
   const { client, session } = usePlatform();
@@ -48,7 +53,6 @@ export function useTowerLive(deviceId: string): TowerLive {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [connected, setConnected] = useState(false);
   const [ptz, setPtz] = useState<Record<string, { az: number; el: number; zoom: number; live: boolean }>>({});
-  const [snapshotUrls, setSnapshotUrls] = useState<Record<string, string>>({});
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
 
   useEffect(() => {
@@ -102,38 +106,6 @@ export function useTowerLive(deviceId: string): TowerLive {
 
   useEffect(() => {
     if (!enabled) return;
-    let cancelled = false;
-    const urls: string[] = [];
-    const pollSnaps = async () => {
-      for (let cam = 1; cam <= CAM_COUNT; cam++) {
-        const path = `cam${cam}`;
-        const ready = streams?.paths?.find((p: StreamPath) => p.name === path)?.ready;
-        if (streams && !ready) continue;
-        try {
-          const blob = await client.snapshot(deviceId, cam);
-          if (cancelled) return;
-          const url = URL.createObjectURL(blob);
-          urls.push(url);
-          const cid = String(cam).padStart(2, '0');
-          setSnapshotUrls((prev) => {
-            const old = prev[cid];
-            if (old) URL.revokeObjectURL(old);
-            return { ...prev, [cid]: url };
-          });
-        } catch { /* offline */ }
-      }
-    };
-    pollSnaps();
-    const id = setInterval(pollSnaps, SNAPSHOT_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-      urls.forEach((u) => URL.revokeObjectURL(u));
-    };
-  }, [client, deviceId, streams, enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
     let es: EventSource | null = null;
     const loadHistory = async () => {
       try {
@@ -163,9 +135,12 @@ export function useTowerLive(deviceId: string): TowerLive {
     if (streams?.available) cstatus = ready ? 'ONLINE' : 'OFFLINE';
     const pos = ptz[c.id];
     const rec = !!streams?.paths?.find((p: StreamPath) => p.name === c.path && p.readers > 0);
+    const camNum = parseInt(c.id, 10) || 1;
+    const hls = playlistUrl(session.baseUrl, deviceId, camNum);
     return {
       ...c,
       status: cstatus,
+      hlsUrl: hls,
       az: pos?.az ?? 0,
       el: pos?.el ?? 0,
       zoom: pos?.zoom ?? 0,
@@ -174,12 +149,17 @@ export function useTowerLive(deviceId: string): TowerLive {
     };
   });
 
+  const hlsUrls: Record<string, string> = {};
+  for (const c of cameras) {
+    if (c.hlsUrl) hlsUrls[c.id] = c.hlsUrl;
+  }
+
   return {
     streams,
     status,
     connected,
     cameras,
     alerts,
-    snapshotUrls,
+    hlsUrls,
   };
 }

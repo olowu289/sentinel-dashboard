@@ -27,10 +27,11 @@ interface Props {
 }
 
 export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
-  const { client } = usePlatform();
-  const { streams, status, connected, cameras, alerts, snapshotUrls } = useTowerLive(deviceId);
+  const { client, session } = usePlatform();
+  const { streams, status, connected, cameras, alerts, hlsUrls } = useTowerLive(deviceId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
   const sysHealth = health(sensors);
+  const ngrok = session.baseUrl.includes('ngrok');
 
   const [selectedCamId, setSelectedCamId] = useState('01');
   const [now, setNow] = useState(() => Date.now());
@@ -193,7 +194,9 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               onSelect={() => setSelectedCamId(c.id)}
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
-              snapshotUrl={snapshotUrls[c.id]}
+              hlsUrl={hlsUrls[c.id] ?? c.hlsUrl}
+              apiKey={session.apiKey}
+              ngrok={ngrok}
             />
           ))}
         </section>
@@ -211,7 +214,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               <Metric k="AZIMUTH" v={selectedCam.ptzLive ? `${pad3(selectedCam.az)}°` : '—'} />
               <Metric k="ELEVATION" v={selectedCam.ptzLive ? `${elFmt(selectedCam.el)}°` : '—'} />
               <Metric k="ZOOM" v={selectedCam.ptzLive ? formatZoom(selectedCam.zoom) : '—'} />
-              <Metric k="STREAM" v={selectedCam.status === 'ONLINE' ? 'SNAPSHOT' : selectedCam.status} />
+              <Metric k="STREAM" v={selectedCam.status === 'ONLINE' ? 'HLS LIVE' : selectedCam.status} />
             </div>
             <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
             <div style={{ display: 'flex', justifyContent: 'center' }}>

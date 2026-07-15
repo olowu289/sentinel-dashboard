@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import type { Camera } from '../types';
 import { colors, font } from '../tokens';
 import { formatZoom } from '../ptzMetrics';
+import LiveHlsVideo from './LiveHlsVideo';
 
 interface Props {
   camera: Camera;
@@ -13,25 +14,27 @@ interface Props {
   onSelect: () => void;
   onToggleSpotlight: () => void;
   onSnapshot: () => Promise<string | null>;
-  /** Platform API snapshot poll URL (blob object URL) */
-  snapshotUrl?: string;
+  /** Platform API HLS playlist URL */
+  hlsUrl?: string;
+  apiKey: string;
+  ngrok?: boolean;
 }
 
 const pad3 = (n: number) => String(((Math.round(n) % 360) + 360) % 360).padStart(3, '0');
 const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e))).padStart(2, '0');
 
 /**
- * One camera tile: live video (MJPEG/HLS) under a targeting HUD. The bottom
- * toolbar (only on the selected tile) drives spotlight / snapshot; PTZ + zoom
- * live in the control panel. Recording is managed by the device (device.env),
- * so this tile only reflects the recording flag — it does not toggle it.
+ * One camera tile: live HLS under a targeting HUD. Snapshot toolbar still
+ * downloads a one-shot JPEG from the Platform API (not continuous poll).
  */
 export default function TowerFeed({
-  camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot, snapshotUrl,
+  camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot,
+  hlsUrl, apiKey, ngrok = false,
 }: Props) {
   const [flash, setFlash] = useState(false);
   const [saveNote, setSaveNote] = useState<string | null>(null);
-  const hasSource = !!snapshotUrl;
+  const streamReady = camera.status === 'ONLINE';
+  const hasSource = !!hlsUrl && streamReady;
 
   const statusColor =
     camera.status === 'ONLINE' ? accent : camera.status === 'STANDBY' ? colors.standby : colors.offline;
@@ -61,7 +64,6 @@ export default function TowerFeed({
         background: `linear-gradient(180deg, ${colors.feedTop} 0%, ${colors.feedMid} 46%, ${colors.feedBot} 100%)`,
       }}
     >
-      {/* texture (only when there is no live source to show) */}
       {!hasSource && (
         <>
           <div style={{ position: 'absolute', inset: 0, opacity: 0.3, pointerEvents: 'none', background: 'repeating-linear-gradient(115deg,#0d1216 0,#0d1216 10px,#171e24 10px,#171e24 20px)' }} />
@@ -69,18 +71,20 @@ export default function TowerFeed({
         </>
       )}
 
-      {/* live video */}
-      {snapshotUrl && (
-        <img src={snapshotUrl} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+      {hlsUrl && (
+        <LiveHlsVideo
+          hlsUrl={hlsUrl}
+          apiKey={apiKey}
+          streamReady={streamReady}
+          ngrok={ngrok}
+        />
       )}
 
-      {/* corner brackets */}
       <div style={{ ...bracketBase, top: 10, left: 10, borderTop: `2px solid ${bracket}`, borderLeft: `2px solid ${bracket}` }} />
       <div style={{ ...bracketBase, top: 10, right: 10, borderTop: `2px solid ${bracket}`, borderRight: `2px solid ${bracket}` }} />
       <div style={{ ...bracketBase, bottom: 10, left: 10, borderBottom: `2px solid ${bracket}`, borderLeft: `2px solid ${bracket}` }} />
       <div style={{ ...bracketBase, bottom: 10, right: 10, borderBottom: `2px solid ${bracket}`, borderRight: `2px solid ${bracket}` }} />
 
-      {/* crosshair (only over the placeholder) */}
       {!hasSource && (
         <>
           <div style={{ position: 'absolute', top: '50%', left: '50%', width: 1, height: 56, transform: 'translate(-50%,-50%)', background: 'rgba(255,255,255,.14)', pointerEvents: 'none' }} />
@@ -89,8 +93,7 @@ export default function TowerFeed({
         </>
       )}
 
-      {/* top strip: id / label / status / rec */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '14px 16px', background: 'linear-gradient(180deg,rgba(6,9,11,.72),transparent)', pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '14px 16px', background: 'linear-gradient(180deg,rgba(6,9,11,.72),transparent)', pointerEvents: 'none', zIndex: 2 }}>
         <div>
           <div style={{ fontFamily: font.display, fontWeight: 700, fontSize: 19, letterSpacing: '.06em', color: colors.textBright, lineHeight: 1 }}>
             CAM {camera.id}
@@ -113,21 +116,19 @@ export default function TowerFeed({
         </div>
       </div>
 
-      {/* bottom strip: live PTZ / zoom from camera */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'linear-gradient(0deg,rgba(6,9,11,.72),transparent)', fontFamily: font.mono, fontSize: 10, letterSpacing: '.1em', color: colors.textFaint, pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'linear-gradient(0deg,rgba(6,9,11,.72),transparent)', fontFamily: font.mono, fontSize: 10, letterSpacing: '.1em', color: colors.textFaint, pointerEvents: 'none', zIndex: 2 }}>
         <span>
           PTZ {pad3(camera.az)}·{elFmt(camera.el)}
           &nbsp; {camera.ptzLive ? `Z${formatZoom(camera.zoom)}` : 'Z—'}
         </span>
-        <span>{snapshotUrl ? 'SNAPSHOT · PLATFORM' : 'RTSP · LIVE'}</span>
+        <span>{hasSource ? 'HLS · LIVE' : 'HLS · WAITING'}</span>
       </div>
 
-      {flash && <div className="snap-flash" style={{ position: 'absolute', inset: 0, background: '#eef3f7', pointerEvents: 'none' }} />}
+      {flash && <div className="snap-flash" style={{ position: 'absolute', inset: 0, background: '#eef3f7', pointerEvents: 'none', zIndex: 3 }} />}
       {saveNote && <div className="snap-toast">{saveNote}</div>}
 
-      {selected && <div style={{ position: 'absolute', inset: 0, border: `1.5px solid ${accent}`, pointerEvents: 'none' }} />}
+      {selected && <div style={{ position: 'absolute', inset: 0, border: `1.5px solid ${accent}`, pointerEvents: 'none', zIndex: 2 }} />}
 
-      {/* action toolbar — only on the selected tile */}
       {selected && (
         <div className="tile-toolbar" onClick={(e) => e.stopPropagation()}>
           <button

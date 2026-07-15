@@ -50,12 +50,18 @@ Set `VITE_PLATFORM_URL` at build time for the API base URL, or serve dashboard a
 ## Features (v1)
 
 - Registry-backed tower list + drawer (filter/search)
-- Per-tower: snapshot polling feeds, PTZ, sensors, alerts (SSE)
-- REC indicator from stream readiness (no playback API yet)
-- Screenshot download via Platform API snapshot
+- Per-tower: **live HLS** feeds via Platform API (`/v1/towers/{id}/live/camN/...`),
+  PTZ, sensors, alerts (SSE)
+- One-shot snapshot download (toolbar) — continuous JPEG polling removed
+- REC indicator from stream readiness
+
+## Live video
+
+Tiles play HLS from the control plane (hub MediaMTX remux — see kallon-sentry
+`docs/customer-live-video.md`). Requires hub HLS agent (`:8768`) cut over and
+Artemis Platform live routes deployed.
 
 ## Not in v1
 
-- Live RTSP in browser (requires video relay + WG peer)
 - Claim-code add tower UI
 - Per-customer API key scoping
