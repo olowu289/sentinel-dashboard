@@ -52,8 +52,10 @@ Set `VITE_PLATFORM_URL` at build time for the API base URL, or serve dashboard a
 - Registry-backed tower list + drawer (filter/search)
 - Per-tower: **live HLS** feeds via Platform API (`/v1/towers/{id}/live/camN/...`),
   PTZ, sensors, alerts (SSE)
+- Continuous NVR **recording toggle** (`GET`/`PUT /v1/towers/{id}/recording`) —
+  same control as the Jetson sentinel-console
 - One-shot snapshot download (toolbar) — continuous JPEG polling removed
-- REC indicator from stream readiness
+- REC indicator from Platform recording status
 
 ## Live video
 

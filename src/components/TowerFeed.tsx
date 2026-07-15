@@ -26,6 +26,8 @@ const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e
 /**
  * One camera tile: live HLS under a targeting HUD. Snapshot toolbar still
  * downloads a one-shot JPEG from the Platform API (not continuous poll).
+ * Recording is toggled from the control panel (Platform API); tiles only
+ * reflect the global recording flag.
  */
 export default function TowerFeed({
   camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot,

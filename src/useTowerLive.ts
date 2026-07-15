@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { StreamsResponse, StreamPath } from '@sentinel/sdk';
+import type { StreamsResponse, StreamPath, RecordingStatus } from '@sentinel/sdk';
 import type { StatusResponse } from './apiTypes';
 import type { Camera, AlertEvent } from './types';
 import { usePlatform } from './platformContext';
@@ -8,6 +8,7 @@ import { alertToEvent } from './session';
 const STREAMS_MS = 3000;
 const STATUS_MS = 2000;
 const PTZ_MS = 2000;
+const RECORDING_MS = 5000;
 const CAM_COUNT = 4;
 
 export interface TowerLive {
@@ -18,6 +19,10 @@ export interface TowerLive {
   alerts: AlertEvent[];
   /** Platform HLS playlist URLs keyed by camera id ("01"…"04"). */
   hlsUrls: Record<string, string>;
+  /** Continuous NVR recording status from Platform API (null while unknown). */
+  recording: RecordingStatus | null;
+  refreshRecording: () => Promise<void>;
+  setRecordingLocal: (s: RecordingStatus | null) => void;
 }
 
 function defaultCameras(): Camera[] {
@@ -54,6 +59,7 @@ export function useTowerLive(deviceId: string): TowerLive {
   const [connected, setConnected] = useState(false);
   const [ptz, setPtz] = useState<Record<string, { az: number; el: number; zoom: number; live: boolean }>>({});
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
+  const [recording, setRecording] = useState<RecordingStatus | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -79,6 +85,22 @@ export function useTowerLive(deviceId: string): TowerLive {
     const a = setInterval(pollStreams, STREAMS_MS);
     const b = setInterval(pollStatus, STATUS_MS);
     return () => { cancelled = true; clearInterval(a); clearInterval(b); };
+  }, [client, deviceId, enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const s = await client.getRecording(deviceId);
+        if (!cancelled) setRecording(s);
+      } catch {
+        /* leave last known — tower/hub may be briefly offline */
+      }
+    };
+    void pull();
+    const id = setInterval(pull, RECORDING_MS);
+    return () => { cancelled = true; clearInterval(id); };
   }, [client, deviceId, enabled]);
 
   useEffect(() => {
@@ -127,14 +149,22 @@ export function useTowerLive(deviceId: string): TowerLive {
     return () => es?.close();
   }, [client, session.customerId, deviceId, enabled]);
 
+  const refreshRecording = async () => {
+    if (!enabled) return;
+    try {
+      const s = await client.getRecording(deviceId);
+      setRecording(s);
+    } catch { /* ignore */ }
+  };
+
   const readyByPath = new Map((streams?.paths ?? []).map((p: StreamPath) => [p.name, !!p.ready]));
+  const recOn = !!recording?.enabled;
 
   const cameras = defaultCameras().map((c) => {
     const ready = readyByPath.get(c.path);
     let cstatus: Camera['status'] = 'STANDBY';
     if (streams?.available) cstatus = ready ? 'ONLINE' : 'OFFLINE';
     const pos = ptz[c.id];
-    const rec = !!streams?.paths?.find((p: StreamPath) => p.name === c.path && p.readers > 0);
     const camNum = parseInt(c.id, 10) || 1;
     const hls = playlistUrl(session.baseUrl, deviceId, camNum);
     return {
@@ -145,7 +175,7 @@ export function useTowerLive(deviceId: string): TowerLive {
       el: pos?.el ?? 0,
       zoom: pos?.zoom ?? 0,
       ptzLive: !!pos?.live,
-      recording: rec,
+      recording: recOn,
     };
   });
 
@@ -161,5 +191,8 @@ export function useTowerLive(deviceId: string): TowerLive {
     cameras,
     alerts,
     hlsUrls,
+    recording,
+    refreshRecording,
+    setRecordingLocal: setRecording,
   };
 }

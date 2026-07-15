@@ -28,7 +28,10 @@ interface Props {
 
 export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const { client, session } = usePlatform();
-  const { streams, status, connected, cameras, alerts, hlsUrls } = useTowerLive(deviceId);
+  const {
+    streams, status, connected, cameras, alerts, hlsUrls,
+    recording, setRecordingLocal,
+  } = useTowerLive(deviceId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
   const sysHealth = health(sensors);
   const ngrok = session.baseUrl.includes('ngrok');
@@ -39,6 +42,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const [spotlight, setSpotlight] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [ptzMsg, setPtzMsg] = useState('');
+  const [recBusy, setRecBusy] = useState(false);
   const [ptzSpeedPct, setPtzSpeedPct] = useState(() => {
     try {
       const saved = Number(localStorage.getItem(PTZ_SPEED_KEY));
@@ -134,6 +138,31 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     }
   }, [client, deviceId, camNum]);
 
+  const toggleRecording = useCallback(async () => {
+    if (recBusy) return;
+    const next = !(recording?.enabled);
+    setRecBusy(true);
+    setPtzMsg(next ? 'enabling recording…' : 'stopping recording…');
+    try {
+      const res = await client.setRecording(deviceId, next);
+      setRecordingLocal(res);
+      if (res.error) {
+        setPtzMsg(`recording failed: ${res.error.message ?? res.error.code ?? 'error'}`);
+      } else if (res.persist_ok === false) {
+        setPtzMsg(`recording ${next ? 'ON' : 'OFF'} (live) — persist warning`);
+      } else {
+        setPtzMsg(`recording ${next ? 'ON' : 'OFF'}`);
+      }
+      if (res.warnings?.length) {
+        console.warn('recording warnings', res.warnings);
+      }
+    } catch (e) {
+      setPtzMsg(`recording failed: ${errMsg(e)}`);
+    } finally {
+      setRecBusy(false);
+    }
+  }, [client, deviceId, recBusy, recording?.enabled, setRecordingLocal]);
+
   const recenter = useCallback(() => {
     void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01'), home: true })
       .then(() => setPtzMsg('home ok'))
@@ -224,9 +253,26 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               <button className="ctl-btn" onClick={() => zoomBy(-ZOOM_STEP)}>− ZOOM</button>
               <button className="ctl-btn" onClick={() => zoomBy(ZOOM_STEP)}>ZOOM +</button>
             </div>
-            <button className="rec-btn" disabled title="Recording is managed on the device">
-              <span style={{ width: 9, height: 9, borderRadius: '50%', background: selectedCam.recording ? colors.rec : colors.textFaint }} />
-              {selectedCam.recording ? 'RECORDING · DEVICE-MANAGED' : 'RECORDING · DEVICE-MANAGED'}
+            <button
+              className={`rec-btn${recording?.enabled ? ' rec-btn--on' : ''}`}
+              disabled={recBusy || !connected}
+              title={recording?.enabled ? 'Stop continuous recording' : 'Start continuous recording'}
+              onClick={() => void toggleRecording()}
+            >
+              <span
+                className={recording?.enabled ? 'rec-dot' : undefined}
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: '50%',
+                  background: recording?.enabled ? colors.offline : colors.textFaint,
+                }}
+              />
+              {recBusy
+                ? 'RECORDING…'
+                : recording?.enabled
+                  ? 'RECORDING · ON'
+                  : 'RECORDING · OFF'}
             </button>
             <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textFaint }}>{ptzMsg}</div>
           </aside>
