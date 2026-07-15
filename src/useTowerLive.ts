@@ -5,10 +5,11 @@ import type { Camera, AlertEvent } from './types';
 import { usePlatform } from './platformContext';
 import { alertToEvent } from './session';
 
-const STREAMS_MS = 3000;
-const STATUS_MS = 2000;
-const PTZ_MS = 2000;
-const RECORDING_MS = 5000;
+/** Keep Artemis/ngrok load low — multi-cam HLS + PTZ spam causes cascade failures. */
+const STREAMS_MS = 8000;
+const STATUS_MS = 8000;
+const PTZ_MS = 3000;
+const RECORDING_MS = 10000;
 const CAM_COUNT = 4;
 
 export interface TowerLive {
@@ -51,7 +52,7 @@ function playlistUrl(baseUrl: string, deviceId: string, camera: number): string 
   return `${base}/v1/towers/${encodeURIComponent(deviceId)}/live/cam${camera}/index.m3u8`;
 }
 
-export function useTowerLive(deviceId: string): TowerLive {
+export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLive {
   const enabled = !!deviceId;
   const { client, session } = usePlatform();
   const [streams, setStreams] = useState<StreamsResponse | null>(null);
@@ -95,7 +96,7 @@ export function useTowerLive(deviceId: string): TowerLive {
         const s = await client.getRecording(deviceId);
         if (!cancelled) setRecording(s);
       } catch {
-        /* leave last known — tower/hub may be briefly offline */
+        /* leave last known */
       }
     };
     void pull();
@@ -103,28 +104,31 @@ export function useTowerLive(deviceId: string): TowerLive {
     return () => { cancelled = true; clearInterval(id); };
   }, [client, deviceId, enabled]);
 
+  // PTZ: only the selected camera (was 4 cams × 2s ≈ Artemis/ngrok saturation).
   useEffect(() => {
     if (!enabled) return;
+    const cam = parseInt(selectedCamId || '01', 10) || 1;
     let cancelled = false;
     const pollPtz = async () => {
-      const next: typeof ptz = {};
-      for (let cam = 1; cam <= CAM_COUNT; cam++) {
-        try {
-          const r = await client.ptzStatus(deviceId, cam);
-          const res = r.result ?? {};
-          const id = String(cam).padStart(2, '0');
-          const panDeg = res.pan_deg ?? (res.pan != null ? res.pan * 180 : 0);
-          const tiltDeg = res.tilt_deg ?? (res.tilt != null ? res.tilt * 45 : 0);
-          const zoomRatio = res.zoom_ratio ?? (res.zoom != null ? 1 + res.zoom * 7 : 1);
-          next[id] = { az: panDeg, el: tiltDeg, zoom: zoomRatio, live: true };
-        } catch { /* camera may be offline */ }
-      }
-      if (!cancelled) setPtz(next);
+      try {
+        const r = await client.ptzStatus(deviceId, cam);
+        const res = r.result ?? {};
+        const id = String(cam).padStart(2, '0');
+        const panDeg = res.pan_deg ?? (res.pan != null ? res.pan * 180 : 0);
+        const tiltDeg = res.tilt_deg ?? (res.tilt != null ? res.tilt * 45 : 0);
+        const zoomRatio = res.zoom_ratio ?? (res.zoom != null ? 1 + res.zoom * 7 : 1);
+        if (!cancelled) {
+          setPtz((prev) => ({
+            ...prev,
+            [id]: { az: panDeg, el: tiltDeg, zoom: zoomRatio, live: true },
+          }));
+        }
+      } catch { /* camera may be offline */ }
     };
     pollPtz();
     const id = setInterval(pollPtz, PTZ_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, [client, deviceId, enabled]);
+  }, [client, deviceId, enabled, selectedCamId]);
 
   useEffect(() => {
     if (!enabled) return;

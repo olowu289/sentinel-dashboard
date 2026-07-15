@@ -28,15 +28,15 @@ interface Props {
 
 export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const { client, session } = usePlatform();
+  const [selectedCamId, setSelectedCamId] = useState('01');
   const {
     streams, status, connected, cameras, alerts, hlsUrls,
     recording, setRecordingLocal,
-  } = useTowerLive(deviceId);
+  } = useTowerLive(deviceId, selectedCamId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
   const sysHealth = health(sensors);
   const ngrok = session.baseUrl.includes('ngrok');
 
-  const [selectedCamId, setSelectedCamId] = useState('01');
   const [now, setNow] = useState(() => Date.now());
   const [controlOpen, setControlOpen] = useState(true);
   const [spotlight, setSpotlight] = useState(false);
@@ -223,7 +223,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               onSelect={() => setSelectedCamId(c.id)}
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
-              hlsUrl={hlsUrls[c.id] ?? c.hlsUrl}
+              hlsUrl={c.id === selectedCam?.id ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
               apiKey={session.apiKey}
               ngrok={ngrok}
             />
@@ -244,14 +244,6 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               <Metric k="ELEVATION" v={selectedCam.ptzLive ? `${elFmt(selectedCam.el)}°` : '—'} />
               <Metric k="ZOOM" v={selectedCam.ptzLive ? formatZoom(selectedCam.zoom) : '—'} />
               <Metric k="STREAM" v={selectedCam.status === 'ONLINE' ? 'HLS LIVE' : selectedCam.status} />
-            </div>
-            <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <PtzPad accent={ACCENT} onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="ctl-btn" onClick={() => zoomBy(-ZOOM_STEP)}>− ZOOM</button>
-              <button className="ctl-btn" onClick={() => zoomBy(ZOOM_STEP)}>ZOOM +</button>
             </div>
             <button
               className={`rec-btn${recording?.enabled ? ' rec-btn--on' : ''}`}
@@ -275,6 +267,14 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
                   : 'RECORDING · OFF'}
             </button>
             <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textFaint }}>{ptzMsg}</div>
+            <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <PtzPad accent={ACCENT} onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="ctl-btn" onClick={() => zoomBy(-ZOOM_STEP)}>− ZOOM</button>
+              <button className="ctl-btn" onClick={() => zoomBy(ZOOM_STEP)}>ZOOM +</button>
+            </div>
           </aside>
         )}
       </main>

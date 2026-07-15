@@ -20,6 +20,15 @@ body {
 
 .app { display: flex; flex-direction: column; min-height: 100vh; }
 
+/* Nested under fleet chrome: fill remaining viewport instead of another 100vh
+   (that pushed the recording button below the fold with no scroll). */
+.fleet-shell .app {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+
 /* ---- top bar ---- */
 .topbar {
   display: flex; align-items: center; gap: 22px;
@@ -47,12 +56,14 @@ body {
 .console {
   flex: 1; display: grid; grid-template-columns: 1fr 340px;
   gap: 18px; padding: 18px 22px; min-height: 0; position: relative;
+  overflow: hidden;
 }
 .console.collapsed { grid-template-columns: 1fr; }
 .console.collapsed .control { display: none; }
 .grid {
   display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
   gap: 14px; min-height: 0; position: relative;
+  overflow: hidden;
 }
 .feed { border: 1px solid #232c34; border-radius: 5px; min-height: 180px; transition: border-color .18s; }
 .feed:hover { border-color: #3a4650; }
@@ -111,6 +122,8 @@ body {
 .control {
   display: flex; flex-direction: column; gap: 16px; min-height: 0;
   background: #10171d; border: 1px solid #232c34; border-radius: 8px; padding: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ---- control-panel collapse toggle ---- */
@@ -291,7 +304,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
-.fleet-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.fleet-shell { min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.fleet-shell > .app { flex: 1; min-height: 0; }
 .fleet-chrome {
   display: flex; align-items: center; gap: 12px; padding: 8px 16px;
   border-bottom: 1px solid var(--line, #1e2830); background: #0a0e11;

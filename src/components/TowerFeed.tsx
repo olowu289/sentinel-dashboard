@@ -123,7 +123,7 @@ export default function TowerFeed({
           PTZ {pad3(camera.az)}·{elFmt(camera.el)}
           &nbsp; {camera.ptzLive ? `Z${formatZoom(camera.zoom)}` : 'Z—'}
         </span>
-        <span>{hasSource ? 'HLS · LIVE' : 'HLS · WAITING'}</span>
+        <span>{hasSource ? 'HLS · LIVE' : (hlsUrl ? 'HLS · WAITING' : 'SELECT · LIVE')}</span>
       </div>
 
       {flash && <div className="snap-flash" style={{ position: 'absolute', inset: 0, background: '#eef3f7', pointerEvents: 'none', zIndex: 3 }} />}
