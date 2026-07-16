@@ -54,21 +54,36 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
 
     if (Hls.isSupported()) {
       const hlsOpts = {
-        // Keep mpegts (not LL-HLS); aim ~4–6s behind live instead of ~20s.
+        // Hub HLS edge is ~2–4s; keep player near that edge. Artemis/ngrok
+        // slowdowns used to let the tile drift a minute behind without seeking.
         lowLatencyMode: false,
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 6,
-        maxBufferLength: 12,
-        maxMaxBufferLength: 24,
-        backBufferLength: 12,
-        manifestLoadingRetryDelay: 2000,
-        levelLoadingRetryDelay: 2000,
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 3,
+        maxLiveSyncPlaybackRate: 2,
+        liveDurationInfinity: true,
+        maxBufferLength: 8,
+        maxMaxBufferLength: 12,
+        backBufferLength: 8,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingRetryDelay: 1000,
         xhrSetup: (xhr: XMLHttpRequest) => attachHeaders(xhr),
       };
       hls = new Hls(hlsOpts);
+
+      const jumpToLive = () => {
+        try {
+          const edge = hls?.liveSyncPosition;
+          if (edge != null && Number.isFinite(edge) && Math.abs(video.currentTime - edge) > 8) {
+            video.currentTime = edge;
+          }
+        } catch { /* ignore */ }
+      };
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        jumpToLive();
         video.play().catch(() => setNote('tap to play'));
       });
+      hls.on(Hls.Events.FRAG_LOADED, jumpToLive);
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data || !data.fatal) return;
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
@@ -84,6 +99,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
             try {
               const retry = new Hls(hlsOpts);
               hls = retry;
+              retry.on(Hls.Events.FRAG_LOADED, jumpToLive);
               retry.loadSource(hlsUrl);
               retry.attachMedia(video);
             } catch { /* ignore */ }
