@@ -53,13 +53,19 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     };
 
     if (Hls.isSupported()) {
-      hls = new Hls({
-        liveSyncDurationCount: 1,
-        backBufferLength: 4,
-        lowLatencyMode: true,
-        manifestLoadingRetryDelay: 1500,
-        xhrSetup: (xhr) => attachHeaders(xhr),
-      });
+      const hlsOpts = {
+        // Prefer seamless playback over low latency (several seconds behind is OK).
+        lowLatencyMode: false,
+        liveSyncDurationCount: 5,
+        liveMaxLatencyDurationCount: 12,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        backBufferLength: 30,
+        manifestLoadingRetryDelay: 2000,
+        levelLoadingRetryDelay: 2000,
+        xhrSetup: (xhr: XMLHttpRequest) => attachHeaders(xhr),
+      };
+      hls = new Hls(hlsOpts);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => setNote('tap to play'));
       });
@@ -76,12 +82,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
           reattach = window.setTimeout(() => {
             setNote('retrying…');
             try {
-              const retry = new Hls({
-                liveSyncDurationCount: 1,
-                backBufferLength: 4,
-                lowLatencyMode: true,
-                xhrSetup: (xhr) => attachHeaders(xhr),
-              });
+              const retry = new Hls(hlsOpts);
               hls = retry;
               retry.loadSource(hlsUrl);
               retry.attachMedia(video);
