@@ -54,13 +54,13 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
 
     if (Hls.isSupported()) {
       const hlsOpts = {
-        // Prefer seamless playback over low latency (several seconds behind is OK).
+        // Keep mpegts (not LL-HLS); aim ~4–6s behind live instead of ~20s.
         lowLatencyMode: false,
-        liveSyncDurationCount: 5,
-        liveMaxLatencyDurationCount: 12,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        backBufferLength: 30,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 6,
+        maxBufferLength: 12,
+        maxMaxBufferLength: 24,
+        backBufferLength: 12,
         manifestLoadingRetryDelay: 2000,
         levelLoadingRetryDelay: 2000,
         xhrSetup: (xhr: XMLHttpRequest) => attachHeaders(xhr),
