@@ -28,24 +28,26 @@ npm run dev
 
 Open http://localhost:5174 — Vite proxies `/v1` to the control plane (see `vite.config.ts`).
 
+**API base URL (one place):** `src/config.ts` reads `VITE_PLATFORM_URL`
+(defaults to Railway). Login, `@sentinel/sdk`, and HLS all use the session
+`baseUrl` derived from that. To retarget: change `.env.production` /
+`.env.development` / Vercel `VITE_PLATFORM_URL`, rebuild.
+
 Sign in with:
 
 | Field | Example |
 |-------|---------|
-| Control plane URL | `https://hue-interseminal-hydrothermally.ngrok-free.dev` or leave blank in dev (uses proxy) |
+| Control plane URL | `https://kallon-sentry-production.up.railway.app` (pre-filled) |
 | API key | Your `KALLON_PLATFORM_API_KEY` |
-| Customer ID | `cust_acme` |
+| Customer ID | `cust_lab` |
 
-## Production (Artemis)
+## Production (Vercel)
 
 ```bash
-git pull
-npm install
-npm run build
-# Serve dist/ behind nginx on Artemis; proxy /v1 to enrollment-api
+# Vercel project env (Production):
+#   VITE_PLATFORM_URL=https://kallon-sentry-production.up.railway.app
+git push origin main   # or merge — Vercel builds with .env.production
 ```
-
-Set `VITE_PLATFORM_URL` at build time for the API base URL, or serve dashboard and API on the same origin.
 
 ## Features (v1)
 
