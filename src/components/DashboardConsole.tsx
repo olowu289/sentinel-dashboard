@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { colors, font } from '../tokens';
-import { health, levelColor, errMsg } from '../util';
+import { errMsg } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { useTowerLive } from '../useTowerLive';
@@ -34,8 +34,10 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     recording, setRecordingLocal,
   } = useTowerLive(deviceId, selectedCamId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
-  const sysHealth = health(sensors);
   const ngrok = session.baseUrl.includes('ngrok');
+  // Hub reachability (Platform API can talk to the tower via hub) — not sensor health.
+  const linkColor = connected ? colors.accent : colors.offline;
+  const linkLabel = connected ? 'Hub link live' : 'Hub link offline';
 
   const [now, setNow] = useState(() => Date.now());
   const [controlOpen, setControlOpen] = useState(true);
@@ -184,15 +186,9 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontFamily: font.display, fontWeight: 700, fontSize: 24, letterSpacing: '.24em', color: colors.textBright }}>SENTINEL</span>
           <span style={{ fontFamily: font.display, fontWeight: 500, fontSize: 14, letterSpacing: '.32em', color: colors.textFaint }}>TERRA</span>
-          <span className="device-pill" title="Device ID">
-            <span className="pill-hd" style={{ background: levelColor(sysHealth.level), color: levelColor(sysHealth.level) }} />
+          <span className="device-pill" title={linkLabel}>
+            <span className="pill-hd" style={{ background: linkColor, color: linkColor }} />
             {deviceLabel}
-          </span>
-        </div>
-        <div className="pills">
-          <span className="pill">
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? ACCENT : colors.offline, boxShadow: `0 0 8px ${connected ? ACCENT : colors.offline}` }} />
-            TOWER <b>{connected ? 'OK' : 'OFFLINE'}</b>
           </span>
         </div>
         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
