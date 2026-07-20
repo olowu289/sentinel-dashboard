@@ -36,7 +36,7 @@ declare global {
 }
 
 /** Jump to live edge when this far behind sync (seconds). */
-const LIVE_JUMP_SEC = 2;
+const LIVE_JUMP_SEC = 4;
 
 /**
  * Buyer-tile live video via Platform API HLS (hub MediaMTX remux).
@@ -142,27 +142,27 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     };
 
     if (Hls.isSupported()) {
-      // Hub serves 1s mpegts segments — stay ~1s behind live, small buffer, gentle catch-up.
+      // mpegts 2s segments on hub: aim ~1 segment behind live, catch up early.
       const hlsOpts = {
         lowLatencyMode: false,
-        liveSyncDuration: 1,
-        liveMaxLatencyDuration: 2.5,
-        maxLiveSyncPlaybackRate: 1.35,
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 2,
+        maxLiveSyncPlaybackRate: 1.5,
         liveDurationInfinity: true,
-        maxBufferLength: 2.5,
-        maxMaxBufferLength: 4,
-        backBufferLength: 2,
+        maxBufferLength: 4,
+        maxMaxBufferLength: 6,
+        backBufferLength: 4,
         highBufferWatchdogPeriod: 1,
         nudgeMaxRetry: 5,
         manifestLoadingTimeOut: 10000,
         manifestLoadingMaxRetry: 4,
-        manifestLoadingRetryDelay: 400,
+        manifestLoadingRetryDelay: 500,
         levelLoadingTimeOut: 10000,
         levelLoadingMaxRetry: 4,
-        levelLoadingRetryDelay: 400,
-        fragLoadingTimeOut: 15000,
+        levelLoadingRetryDelay: 500,
+        fragLoadingTimeOut: 20000,
         fragLoadingMaxRetry: 4,
-        fragLoadingRetryDelay: 400,
+        fragLoadingRetryDelay: 500,
         xhrSetup: (xhr: XMLHttpRequest) => attachHeaders(xhr),
       };
       hls = new Hls(hlsOpts);
