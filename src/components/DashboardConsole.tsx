@@ -219,7 +219,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               onSelect={() => setSelectedCamId(c.id)}
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
-              hlsUrl={hlsUrls[c.id] ?? c.hlsUrl}
+              hlsUrl={c.id === selectedCam?.id ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
               apiKey={session.apiKey}
               ngrok={ngrok}
             />
