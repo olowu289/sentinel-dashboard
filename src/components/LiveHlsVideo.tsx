@@ -38,28 +38,72 @@ declare global {
 /** Forward-only catch-up when lag exceeds this AND buffer has runway (seconds). */
 const LIVE_CATCHUP_LAG_SEC = 45;
 
+/** Safety margin before true playlist edge (seconds). */
+const LIVE_EDGE_PAD_SEC = 0.35;
+
+/** After PTZ, aim this close to the edge until NVR buffering resumes passively. */
+const PTZ_TARGET_LATENCY_SEC = 2;
+
 /**
- * NVR-style live HLS: deep buffer, play forward smoothly, never chase the edge
- * aggressively (that caused freezes and backward jumps on Railway/hub jitter).
+ * Snap to the true live edge (not liveSyncPosition — that stays behind in buffered mode).
+ * Forward-only; used on PTZ so the view matches the camera now.
+ */
+function snapToLiveEdge(hls: Hls, video: HTMLVideoElement) {
+  const seekForward = () => {
+    let target: number | null = null;
+
+    const details = hls.latestLevelDetails;
+    if (details?.live && Number.isFinite(details.edge)) {
+      target = details.edge - LIVE_EDGE_PAD_SEC;
+    }
+
+    if (video.buffered.length > 0) {
+      const bufEnd = video.buffered.end(video.buffered.length - 1) - LIVE_EDGE_PAD_SEC;
+      if (target == null || bufEnd > target) target = bufEnd;
+    }
+
+    if (target == null) {
+      const sync = hls.liveSyncPosition;
+      if (sync != null && Number.isFinite(sync)) target = sync;
+    }
+
+    if (target != null && Number.isFinite(target) && target > video.currentTime + 0.1) {
+      video.currentTime = target;
+    }
+    void video.play().catch(() => { /* autoplay policy */ });
+  };
+
+  try {
+    // Briefly tighten latency target for the next load cycle, then NVR config takes over.
+    hls.targetLatency = PTZ_TARGET_LATENCY_SEC;
+    hls.startLoad(-1);
+    seekForward();
+
+    const onBuffered = () => {
+      seekForward();
+      hls.off(Hls.Events.FRAG_BUFFERED, onBuffered);
+    };
+    hls.on(Hls.Events.FRAG_BUFFERED, onBuffered);
+
+    window.setTimeout(seekForward, 600);
+    window.setTimeout(seekForward, 1800);
+  } catch { /* ignore */ }
+}
+
+/**
+ * NVR-style live HLS: deep buffer, play forward smoothly. PTZ triggers an explicit
+ * jump to the true live edge so pan/zoom feedback is visible immediately.
  */
 export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick = 0 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | undefined>(undefined);
+  const snapLiveRef = useRef<(() => void) | null>(null);
   const [note, setNote] = useState('connecting…');
   const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     if (!syncLiveTick || !streamReady) return;
-    const video = videoRef.current;
-    const hls = hlsRef.current;
-    if (!video || !hls) return;
-    try {
-      const edge = hls.liveSyncPosition;
-      if (edge != null && Number.isFinite(edge) && edge > video.currentTime + 0.25) {
-        video.currentTime = edge;
-      }
-      hls.startLoad(-1);
-    } catch { /* ignore */ }
+    snapLiveRef.current?.();
   }, [syncLiveTick, streamReady]);
 
   useEffect(() => {
@@ -69,6 +113,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
 
   useEffect(() => {
     if (!streamReady || !hlsUrl) {
+      snapLiveRef.current = null;
       const v = videoRef.current;
       if (v) {
         v.removeAttribute('src');
@@ -85,6 +130,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     let lastProxyMs: number | null = null;
     let lastHubUpstreamMs: number | null = null;
     let lowBufferTicks = 0;
+    let lastPtzSnapMs = 0;
 
     window.__sentinelLiveMetrics = {
       samples: [],
@@ -102,9 +148,10 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     };
 
     const pushSample = (hls: Hls | undefined) => {
-      const sync = hls?.liveSyncPosition;
+      const details = hls?.latestLevelDetails;
+      const edge = details?.live && Number.isFinite(details.edge) ? details.edge : hls?.liveSyncPosition;
       const lagBehindSync =
-        sync != null && Number.isFinite(sync) ? sync - video.currentTime : null;
+        edge != null && Number.isFinite(edge) ? edge - video.currentTime : null;
 
       let hlsLatency: number | null = null;
       try {
@@ -139,17 +186,20 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
       try { hls?.startLoad(-1); } catch { /* ignore */ }
     };
 
-    /** Forward-only skip when far behind live — never seek backward. */
+    /** Passive NVR catch-up — only when extremely far behind. */
     const catchUpIfNeeded = () => {
       if (!hls) return;
       try {
-        const edge = hls.liveSyncPosition;
+        const details = hls.latestLevelDetails;
+        const edge = details?.live && Number.isFinite(details.edge)
+          ? details.edge
+          : hls.liveSyncPosition;
         if (edge == null || !Number.isFinite(edge)) return;
         const lag = edge - video.currentTime;
         if (lag < LIVE_CATCHUP_LAG_SEC) return;
         const ahead = bufferedAheadSec();
         if (ahead < 3) return;
-        const target = Math.min(edge, video.currentTime + ahead - 1.5);
+        const target = Math.min(edge - LIVE_EDGE_PAD_SEC, video.currentTime + ahead - 1.5);
         if (target > video.currentTime + 5) {
           video.currentTime = target;
         }
@@ -184,7 +234,6 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     if (Hls.isSupported()) {
       const hlsOpts = {
         lowLatencyMode: false,
-        // NVR-style: play from buffer, do not aggressively hunt the live edge.
         liveSyncMode: 'buffered' as const,
         liveSyncDurationCount: 4,
         liveMaxLatencyDurationCount: 30,
@@ -212,6 +261,14 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
       };
       hls = new Hls(hlsOpts);
       hlsRef.current = hls;
+
+      snapLiveRef.current = () => {
+        if (!hls) return;
+        const now = Date.now();
+        if (now - lastPtzSnapMs < 350) return;
+        lastPtzSnapMs = now;
+        snapToLiveEdge(hls, video);
+      };
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => setNote('tap to play'));
@@ -244,6 +301,13 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
               const retry = new Hls(hlsOpts);
               hls = retry;
               hlsRef.current = retry;
+              snapLiveRef.current = () => {
+                if (!hls) return;
+                const now = Date.now();
+                if (now - lastPtzSnapMs < 350) return;
+                lastPtzSnapMs = now;
+                snapToLiveEdge(hls, video);
+              };
               retry.on(Hls.Events.FRAG_LOADED, () => { pushSample(retry); });
               retry.loadSource(hlsUrl);
               retry.attachMedia(video);
@@ -268,6 +332,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
 
       sampleTimer = window.setInterval(() => pushSample(hls), 5000);
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      snapLiveRef.current = null;
       const sep = hlsUrl.includes('?') ? '&' : '?';
       video.src = `${hlsUrl}${sep}api_key=${encodeURIComponent(apiKey)}`;
       video.play().catch(() => setNote('tap to play'));
@@ -276,9 +341,11 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     }
 
     return () => {
+      snapLiveRef.current = null;
       video.removeEventListener('playing', onPlaying);
       video.removeEventListener('waiting', onWaiting);
       if (reattach) window.clearTimeout(reattach);
+      for (const id of snapTimers) window.clearTimeout(id);
       if (healthTimer) window.clearInterval(healthTimer);
       if (sampleTimer) window.clearInterval(sampleTimer);
       if (hls) { try { hls.destroy(); } catch { /* gone */ } }
