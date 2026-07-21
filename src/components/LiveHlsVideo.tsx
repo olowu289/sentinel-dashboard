@@ -345,7 +345,6 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
       video.removeEventListener('playing', onPlaying);
       video.removeEventListener('waiting', onWaiting);
       if (reattach) window.clearTimeout(reattach);
-      for (const id of snapTimers) window.clearTimeout(id);
       if (healthTimer) window.clearInterval(healthTimer);
       if (sampleTimer) window.clearInterval(sampleTimer);
       if (hls) { try { hls.destroy(); } catch { /* gone */ } }
