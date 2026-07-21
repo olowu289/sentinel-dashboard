@@ -9,6 +9,8 @@ interface Props {
   streamReady?: boolean;
   /** True when control plane URL is ngrok (needs browser warning skip header). */
   ngrok?: boolean;
+  /** Increment to snap playback to the live HLS edge (e.g. on PTZ). */
+  syncLiveTick?: number;
 }
 
 export type LiveLatencySample = {
@@ -40,10 +42,25 @@ const LIVE_CATCHUP_LAG_SEC = 45;
  * NVR-style live HLS: deep buffer, play forward smoothly, never chase the edge
  * aggressively (that caused freezes and backward jumps on Railway/hub jitter).
  */
-export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok = false }: Props) {
+export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick = 0 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | undefined>(undefined);
   const [note, setNote] = useState('connecting…');
   const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    if (!syncLiveTick || !streamReady) return;
+    const video = videoRef.current;
+    const hls = hlsRef.current;
+    if (!video || !hls) return;
+    try {
+      const edge = hls.liveSyncPosition;
+      if (edge != null && Number.isFinite(edge) && edge > video.currentTime + 0.25) {
+        video.currentTime = edge;
+      }
+      hls.startLoad(-1);
+    } catch { /* ignore */ }
+  }, [syncLiveTick, streamReady]);
 
   useEffect(() => {
     setPlaying(false);
@@ -194,6 +211,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
         xhrSetup: (xhr: XMLHttpRequest) => attachHeaders(xhr),
       };
       hls = new Hls(hlsOpts);
+      hlsRef.current = hls;
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => setNote('tap to play'));
@@ -225,6 +243,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
             try {
               const retry = new Hls(hlsOpts);
               hls = retry;
+              hlsRef.current = retry;
               retry.on(Hls.Events.FRAG_LOADED, () => { pushSample(retry); });
               retry.loadSource(hlsUrl);
               retry.attachMedia(video);
@@ -263,6 +282,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
       if (healthTimer) window.clearInterval(healthTimer);
       if (sampleTimer) window.clearInterval(sampleTimer);
       if (hls) { try { hls.destroy(); } catch { /* gone */ } }
+      hlsRef.current = undefined;
       video.removeAttribute('src');
       try { video.load(); } catch { /* ignore */ }
     };

@@ -58,6 +58,16 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const jogInterval = useRef<number | undefined>(undefined);
   const jogDir = useRef<PanDir | null>(null);
   const jogging = useRef(false);
+  const ptzSyncAtRef = useRef(0);
+  const [ptzLiveSyncTick, setPtzLiveSyncTick] = useState(0);
+
+  /** Snap selected feed to live edge on PTZ — throttled during hold-to-jog. */
+  const bumpLiveSync = useCallback((force = false) => {
+    const now = Date.now();
+    if (!force && now - ptzSyncAtRef.current < 1200) return;
+    ptzSyncAtRef.current = now;
+    setPtzLiveSyncTick((n) => n + 1);
+  }, []);
 
   const selectedCam = cameras.find((c) => c.id === selectedCamId) ?? cameras[0];
 
@@ -70,6 +80,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const camNum = useCallback((id: string) => parseInt(id, 10) || 1, []);
 
   const sendMove = useCallback((dir: PanDir | null, zoomDir: number, seconds: number) => {
+    bumpLiveSync();
     const cam = camNum(selectedCam?.id ?? '01');
     const p = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
     const t = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
@@ -81,17 +92,18 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
       zoom: zoomDir * ptzVelocity,
       seconds,
     });
-  }, [client, deviceId, selectedCam, camNum, ptzVelocity]);
+  }, [client, deviceId, selectedCam, camNum, ptzVelocity, bumpLiveSync]);
 
   const stopJog = useCallback(() => {
     if (jogTimer.current !== undefined) { window.clearTimeout(jogTimer.current); jogTimer.current = undefined; }
     if (jogInterval.current !== undefined) { window.clearInterval(jogInterval.current); jogInterval.current = undefined; }
     if (jogging.current) {
       jogging.current = false;
+      bumpLiveSync(true);
       void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01') });
     }
     jogDir.current = null;
-  }, [client, deviceId, selectedCam, camNum]);
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
 
   const nudge = useCallback((dir: PanDir) => {
     void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg('move ok')).catch((e: unknown) => setPtzMsg(`move failed: ${errMsg(e)}`));
@@ -166,10 +178,11 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   }, [client, deviceId, recBusy, recording?.enabled, setRecordingLocal]);
 
   const recenter = useCallback(() => {
+    bumpLiveSync(true);
     void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01'), home: true })
       .then(() => setPtzMsg('home ok'))
       .catch((e: unknown) => setPtzMsg(`home failed: ${errMsg(e)}`));
-  }, [client, deviceId, selectedCam, camNum]);
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -220,6 +233,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
               hlsUrl={c.id === selectedCam?.id ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
+              syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
               apiKey={session.apiKey}
               ngrok={ngrok}
             />

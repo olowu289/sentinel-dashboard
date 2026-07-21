@@ -18,6 +18,8 @@ interface Props {
   hlsUrl?: string;
   apiKey: string;
   ngrok?: boolean;
+  /** When set, snap this tile to the live HLS edge (PTZ on selected camera). */
+  syncLiveTick?: number;
 }
 
 const pad3 = (n: number) => String(((Math.round(n) % 360) + 360) % 360).padStart(3, '0');
@@ -31,7 +33,7 @@ const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e
  */
 export default function TowerFeed({
   camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot,
-  hlsUrl, apiKey, ngrok = false,
+  hlsUrl, apiKey, ngrok = false, syncLiveTick,
 }: Props) {
   const [flash, setFlash] = useState(false);
   const [saveNote, setSaveNote] = useState<string | null>(null);
@@ -79,6 +81,7 @@ export default function TowerFeed({
           apiKey={apiKey}
           streamReady={streamReady}
           ngrok={ngrok}
+          syncLiveTick={syncLiveTick}
         />
       )}
 
