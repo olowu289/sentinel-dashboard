@@ -1,5 +1,6 @@
 import type { PlatformAlert, Tower as ApiTower } from '@sentinel/sdk';
 import type { Camera, Sensor, AlertEvent } from './types';
+import { formatDateTimeUTC1 } from './clock';
 
 export interface Session {
   baseUrl: string;
@@ -51,13 +52,13 @@ export function towerDisplayName(t: ApiTower): string {
 export function alertToEvent(a: PlatformAlert): AlertEvent {
   const sev = (a.severity || '').toLowerCase();
   const level = sev === 'critical' ? 'bad' : sev === 'warning' ? 'warn' : 'good';
-  const time = a.timestamp_utc
-    ? new Date(a.timestamp_utc).toLocaleTimeString([], { hour12: false })
-    : '';
+  const timestampUtc = a.timestamp_utc ?? null;
+  const time = timestampUtc ? formatDateTimeUTC1(timestampUtc) : '';
   return {
     id: a.nonce ?? `${a.alert_type}|${a.timestamp_utc}`,
     type: a.alert_type,
     level,
+    timestampUtc,
     time,
     payload: a.details ?? {},
     deviceId: a.device_id,

@@ -4,14 +4,18 @@ import { useFleet } from './useFleet';
 import { usePlatform } from './platformContext';
 import type { Tower } from './types';
 import DashboardConsole from './components/DashboardConsole';
+import RecordingsView from './components/RecordingsView';
 import TowerDrawer from './components/TowerDrawer';
 import TowerMenu from './components/TowerMenu';
+
+type AppView = 'live' | 'recordings';
 
 export default function FleetApp() {
   const { session, logout } = usePlatform();
   const { towers: fleetTowers, loading, error } = useFleet();
   const [selectedTowerId, setSelectedTowerId] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [view, setView] = useState<AppView>('live');
   const [now] = useState(() => Date.now());
 
   const towers: Tower[] = useMemo(() => fleetTowers.map((t) => ({
@@ -43,6 +47,10 @@ export default function FleetApp() {
         <span style={{ fontFamily: font.mono, fontSize: 11, color: colors.textFaint, letterSpacing: '.14em' }}>
           {session.customerId} · {towers.length} tower{towers.length === 1 ? '' : 's'}
         </span>
+        <nav className="fleet-nav" aria-label="Main sections">
+          <button type="button" className={view === 'live' ? 'active' : ''} onClick={() => setView('live')}>LIVE</button>
+          <button type="button" className={view === 'recordings' ? 'active' : ''} onClick={() => setView('recordings')}>RECORDINGS</button>
+        </nav>
         <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
       </div>
 
@@ -53,8 +61,17 @@ export default function FleetApp() {
       {loading && <div className="feed-loading">Loading fleet…</div>}
       {error && <div className="login-error" style={{ margin: 16 }}>{error}</div>}
 
-      {selected && !loading && (
+      {selected && !loading && view === 'live' && (
         <DashboardConsole key={selected.id} deviceId={selected.id} deviceLabel={deviceLabel} />
+      )}
+
+      {selected && !loading && view === 'recordings' && (
+        <RecordingsView
+          key={`rec-${selected.id}`}
+          towers={towers}
+          selectedTowerId={selected.id}
+          onSelectTower={setSelectedTowerId}
+        />
       )}
 
       <TowerDrawer

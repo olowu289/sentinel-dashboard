@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { colors, font } from '../tokens';
+import { formatClockUTC1 } from '../clock';
 import { errMsg } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
@@ -190,7 +191,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
   useEffect(() => () => stopJog(), [stopJog]);
 
-  const utc = new Date(now).toISOString().slice(11, 19);
+  const utc = formatClockUTC1(now);
 
   return (
     <div className="app">
@@ -205,7 +206,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         </div>
         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
           <div style={{ fontFamily: font.mono, fontSize: 19, color: colors.textBright, letterSpacing: '.06em' }}>{utc}</div>
-          <div style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: '.16em', color: colors.textFaint }}>UTC · PLATFORM API</div>
+          <div style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: '.16em', color: colors.textFaint }}>UTC+1 · PLATFORM API</div>
         </div>
       </header>
 
