@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { colors, font } from '../tokens';
 import { formatClockUTC1, formatDateTimeUTC1, formatBytes } from '../clock';
 import { usePlatform } from '../platformContext';
 import { useRecordings } from '../useRecordings';
 import type { Tower } from '../types';
+
+const PAGE_SIZE = 24;
 
 interface Props {
   towers: Tower[];
@@ -17,12 +19,29 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [playingLabel, setPlayingLabel] = useState('');
   const [busyId, setBusyId] = useState('');
-  const [now] = useState(() => Date.now());
+  const [page, setPage] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
 
   const deviceId = selectedTowerId || undefined;
   const { segments, retentionDays, loading, error, refresh, play, download, remove } = useRecordings(
     deviceId,
     { camera, enabled: !!deviceId },
+  );
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    setPage(0);
+  }, [deviceId, camera]);
+
+  const pageCount = Math.max(1, Math.ceil(segments.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageItems = useMemo(
+    () => segments.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
+    [segments, safePage],
   );
 
   const towerLabel = useMemo(
@@ -31,9 +50,11 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
   );
 
   const clock = formatClockUTC1(now);
+  const rangeStart = segments.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(segments.length, (safePage + 1) * PAGE_SIZE);
 
   return (
-    <div className="app recordings-view">
+    <div className="recordings-view">
       <header className="topbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontFamily: font.display, fontWeight: 700, fontSize: 24, letterSpacing: '.24em', color: colors.textBright }}>SENTINEL</span>
@@ -74,74 +95,97 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
       {error && <div className="login-error rec-error">{error}</div>}
 
       <div className="rec-layout">
-        <div className="rec-list">
+        <aside className="rec-list-pane">
           <div className="rec-list-head">
             <span>{towerLabel}</span>
-            <span>{segments.length} segment{segments.length === 1 ? '' : 's'}</span>
+            <span>{segments.length} total</span>
           </div>
-          {segments.length === 0 && !loading && (
-            <div className="rec-empty">No uploaded recordings yet for this tower.</div>
-          )}
-          {segments.map((seg) => (
-            <div className="rec-row" key={seg.segment_id}>
-              <div className="rec-row-main">
-                <div className="rec-row-title">CAM {String(seg.camera).padStart(2, '0')}</div>
-                <div className="rec-row-time">{formatDateTimeUTC1(seg.started_at)}</div>
-                <div className="rec-row-meta">{formatBytes(seg.size_bytes)} · {seg.filename}</div>
+          <div className="rec-list-body">
+            {segments.length === 0 && !loading && (
+              <div className="rec-empty">No uploaded recordings yet for this tower.</div>
+            )}
+            {pageItems.map((seg) => (
+              <div className="rec-row" key={seg.segment_id}>
+                <div className="rec-row-main">
+                  <div className="rec-row-title">CAM {String(seg.camera).padStart(2, '0')}</div>
+                  <div className="rec-row-time">{formatDateTimeUTC1(seg.started_at)}</div>
+                  <div className="rec-row-meta">{formatBytes(seg.size_bytes)} · {seg.filename}</div>
+                </div>
+                <div className="rec-row-actions">
+                  <button
+                    type="button"
+                    className="ctl-btn"
+                    disabled={busyId === seg.segment_id}
+                    onClick={() => {
+                      setBusyId(seg.segment_id);
+                      void play(seg.segment_id)
+                        .then((url) => {
+                          setPlayingUrl(url);
+                          setPlayingLabel(`${towerLabel} · CAM ${String(seg.camera).padStart(2, '0')}`);
+                        })
+                        .finally(() => setBusyId(''));
+                    }}
+                  >
+                    PLAY
+                  </button>
+                  <button
+                    type="button"
+                    className="ctl-btn"
+                    disabled={busyId === seg.segment_id}
+                    onClick={() => {
+                      setBusyId(seg.segment_id);
+                      void download(seg).finally(() => setBusyId(''));
+                    }}
+                  >
+                    DOWNLOAD
+                  </button>
+                  <button
+                    type="button"
+                    className="ctl-btn rec-del"
+                    disabled={busyId === seg.segment_id}
+                    onClick={() => {
+                      if (!window.confirm('Delete this recording from cloud storage?')) return;
+                      setBusyId(seg.segment_id);
+                      void remove(seg.segment_id).finally(() => setBusyId(''));
+                    }}
+                  >
+                    DELETE
+                  </button>
+                </div>
               </div>
-              <div className="rec-row-actions">
-                <button
-                  type="button"
-                  className="ctl-btn"
-                  disabled={busyId === seg.segment_id}
-                  onClick={() => {
-                    setBusyId(seg.segment_id);
-                    void play(seg.segment_id)
-                      .then((url) => {
-                        setPlayingUrl(url);
-                        setPlayingLabel(`${towerLabel} · CAM ${String(seg.camera).padStart(2, '0')}`);
-                      })
-                      .finally(() => setBusyId(''));
-                  }}
-                >
-                  PLAY
-                </button>
-                <button
-                  type="button"
-                  className="ctl-btn"
-                  disabled={busyId === seg.segment_id}
-                  onClick={() => {
-                    setBusyId(seg.segment_id);
-                    void download(seg).finally(() => setBusyId(''));
-                  }}
-                >
-                  DOWNLOAD
-                </button>
-                <button
-                  type="button"
-                  className="ctl-btn rec-del"
-                  disabled={busyId === seg.segment_id}
-                  onClick={() => {
-                    if (!window.confirm('Delete this recording from cloud storage?')) return;
-                    setBusyId(seg.segment_id);
-                    void remove(seg.segment_id).finally(() => setBusyId(''));
-                  }}
-                >
-                  DELETE
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <div className="rec-pager">
+            <button
+              type="button"
+              className="ctl-btn"
+              disabled={safePage <= 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              PREV
+            </button>
+            <span className="rec-pager-meta">
+              {rangeStart}–{rangeEnd} / {segments.length} · page {safePage + 1}/{pageCount}
+            </span>
+            <button
+              type="button"
+              className="ctl-btn"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            >
+              NEXT
+            </button>
+          </div>
+        </aside>
 
-        <div className="rec-player-pane">
+        <section className="rec-player-pane">
           <div className="rec-player-head">{playingLabel || 'Select a segment to play'}</div>
           {playingUrl ? (
             <video className="rec-player" controls autoPlay playsInline preload="metadata" src={playingUrl} />
           ) : (
             <div className="rec-player-empty">Select a segment to play</div>
           )}
-        </div>
+        </section>
       </div>
 
       <div className="rec-foot">{session.customerId} · uploaded segments only · tenant isolated</div>

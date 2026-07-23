@@ -9,7 +9,10 @@
 @keyframes beacon  { 0%, 100% { opacity: 1 } 50% { opacity: .4 } }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body, #root { height: 100%; }
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
 
 body {
   background: #0c1013;
@@ -18,26 +21,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.app { display: flex; flex-direction: column; min-height: 100vh; }
+.app { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
 
-/* Nested under fleet chrome: fill remaining viewport instead of another 100vh
-   (that pushed the recording button below the fold with no scroll). */
-.fleet-shell .app {
-  flex: 1;
+/* Nested under fleet chrome: fill remaining viewport. */
+.fleet-shell .app,
+.fleet-shell .recordings-view {
+  flex: 1 1 0;
   min-height: 0;
   height: auto;
   overflow: hidden;
-}
-.fleet-shell .recordings-view {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 /* ---- top bar ---- */
 .topbar {
+  flex: none;
   display: flex; align-items: center; gap: 22px;
   padding: 14px 22px; border-bottom: 1px solid #232c34;
   background: linear-gradient(180deg, #0e151c, #0c1013);
@@ -317,12 +316,38 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
-.fleet-shell { min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-.fleet-shell > .app { flex: 1; min-height: 0; }
+.fleet-shell {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.fleet-shell > .app,
+.fleet-shell > .recordings-view {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .fleet-chrome {
+  flex: none;
   display: flex; align-items: center; gap: 12px; padding: 8px 16px;
   border-bottom: 1px solid var(--line, #1e2830); background: #0a0e11;
 }
+.tower-menu {
+  flex: none;
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 8px 16px; border-bottom: 1px solid #232c34; background: #0a0e11;
+}
+.tower-menu-item {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border: 1px solid #232c34; border-radius: 6px;
+  background: #10171d; color: #8b97a1; cursor: pointer;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .06em;
+}
+.tower-menu-item.selected { border-color: #3a4650; color: #eef3f7; background: #151d24; }
+.tmi-dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+.tmi-status { font-size: 9px; letter-spacing: .1em; }
 .hamburger, .logout-btn {
   background: transparent; border: 1px solid #2a3540; color: #9aa8b4;
   border-radius: 6px; padding: 6px 10px; cursor: pointer; font-family: inherit;
@@ -578,7 +603,7 @@ body {
 
 /* ---- recordings section ---- */
 .recordings-view {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -595,18 +620,65 @@ body {
   border-radius: 4px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px;
 }
 .rec-layout {
-  flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 420px) 1fr;
-  gap: 16px; padding: 16px 22px 22px; overflow: hidden;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16px;
+  padding: 16px 22px 22px;
+  overflow: hidden;
 }
-.rec-list {
-  border: 1px solid #232c34; border-radius: 8px; background: #0e1419;
-  overflow-x: hidden; overflow-y: auto; min-height: 0;
-}
-.rec-list-head {
-  position: sticky; top: 0; z-index: 1;
-  display: flex; justify-content: space-between; padding: 12px 14px;
-  border-bottom: 1px solid #232c34; font-size: 11px; letter-spacing: .08em; color: #8b97a1;
+.rec-list-pane,
+.rec-player-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #232c34;
+  border-radius: 8px;
   background: #0e1419;
+}
+.rec-list-pane {
+  flex: 0 0 420px;
+  width: 420px;
+  max-width: 42vw;
+}
+.rec-player-pane {
+  flex: 1 1 0;
+  background: #0a0e12;
+}
+.rec-list-head,
+.rec-player-head {
+  flex: none;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid #232c34;
+  font-size: 11px; letter-spacing: .08em; color: #8b97a1;
+}
+.rec-list-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.rec-pager {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid #232c34;
+}
+.rec-pager .ctl-btn { flex: none; padding: 8px 12px; }
+.rec-pager-meta {
+  flex: 1;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: #74808a;
 }
 .rec-empty { padding: 24px 14px; color: #74808a; font-size: 12px; }
 .rec-row {
@@ -618,21 +690,16 @@ body {
 .rec-row-meta { font-size: 10px; color: #74808a; word-break: break-all; }
 .rec-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .rec-del { color: #ff8a8a; }
-.rec-player-pane {
-  border: 1px solid #232c34; border-radius: 8px; background: #0a0e12;
-  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
-}
-.rec-player-head {
-  flex: none;
-  padding: 12px 14px; border-bottom: 1px solid #232c34;
-  font-size: 11px; letter-spacing: .08em; color: #8b97a1;
-}
 .rec-player {
-  flex: 1; width: 100%; min-height: 0; background: #000;
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  background: #000;
   object-fit: contain;
 }
 .rec-player-empty {
-  flex: 1; display: flex; align-items: center; justify-content: center;
+  flex: 1 1 0;
+  display: flex; align-items: center; justify-content: center;
   color: #74808a; font-size: 12px; letter-spacing: .08em;
 }
 .rec-error { flex: none; margin: 12px 22px 0; }
@@ -641,11 +708,14 @@ body {
   padding: 10px 22px 16px; font-size: 10px; letter-spacing: .12em; color: #74808a;
 }
 @media (max-width: 900px) {
-  .rec-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(180px, 40%) 1fr;
-    overflow: hidden;
+  .rec-layout { flex-direction: column; }
+  .rec-list-pane {
+    flex: 1 1 0;
+    width: auto;
+    max-width: none;
   }
-  .rec-player-pane { order: -1; min-height: 180px; }
-  .rec-list { min-height: 0; }
+  .rec-player-pane {
+    flex: 0 0 42%;
+    order: -1;
+  }
 }

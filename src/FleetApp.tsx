@@ -16,7 +16,12 @@ export default function FleetApp() {
   const [selectedTowerId, setSelectedTowerId] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [view, setView] = useState<AppView>('live');
-  const [now] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const towers: Tower[] = useMemo(() => fleetTowers.map((t) => ({
     ...t,
