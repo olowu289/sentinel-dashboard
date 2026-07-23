@@ -4,6 +4,7 @@ import type { StatusResponse } from './apiTypes';
 import type { Camera, AlertEvent } from './types';
 import { usePlatform } from './platformContext';
 import { alertToEvent } from './session';
+import { formatApiError } from './util';
 
 /** Keep Artemis/ngrok load low — multi-cam HLS + PTZ spam causes cascade failures. */
 const STREAMS_MS = 8000;
@@ -16,6 +17,8 @@ export interface TowerLive {
   streams: StreamsResponse | null;
   status: StatusResponse | null;
   connected: boolean;
+  /** Last hop-specific error from status/streams poll (empty when linked). */
+  linkError: string;
   cameras: Camera[];
   alerts: AlertEvent[];
   /** Platform HLS playlist URLs keyed by camera id ("01"…"04"). */
@@ -58,6 +61,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
   const [streams, setStreams] = useState<StreamsResponse | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [connected, setConnected] = useState(false);
+  const [linkError, setLinkError] = useState('');
   const [ptz, setPtz] = useState<Record<string, { az: number; el: number; zoom: number; live: boolean }>>({});
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [recording, setRecording] = useState<RecordingStatus | null>(null);
@@ -68,17 +72,24 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
     const pollStreams = async () => {
       try {
         const s = await client.towerStreams(deviceId);
-        if (!cancelled) { setStreams(s); setConnected(true); }
-      } catch {
-        if (!cancelled) { setStreams(null); setConnected(false); }
+        if (!cancelled) { setStreams(s); setConnected(true); setLinkError(''); }
+      } catch (e) {
+        if (!cancelled) {
+          setStreams(null);
+          setConnected(false);
+          setLinkError(formatApiError(e, 'Could not reach tower via hub'));
+        }
       }
     };
     const pollStatus = async () => {
       try {
         const s = await client.towerStatus(deviceId) as StatusResponse;
-        if (!cancelled) { setStatus(s); setConnected(true); }
-      } catch {
-        if (!cancelled) setStatus({ available: false });
+        if (!cancelled) { setStatus(s); setConnected(true); setLinkError(''); }
+      } catch (e) {
+        if (!cancelled) {
+          setStatus({ available: false });
+          setLinkError(formatApiError(e, 'Could not reach tower via hub'));
+        }
       }
     };
     pollStreams();
@@ -192,6 +203,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
     streams,
     status,
     connected,
+    linkError,
     cameras,
     alerts,
     hlsUrls,

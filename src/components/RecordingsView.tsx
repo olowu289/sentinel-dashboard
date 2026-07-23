@@ -3,6 +3,7 @@ import { colors, font } from '../tokens';
 import { formatClockUTC1, formatDateTimeUTC1, formatBytes } from '../clock';
 import { usePlatform } from '../platformContext';
 import { useRecordings } from '../useRecordings';
+import { formatApiError } from '../util';
 import type { Tower } from '../types';
 
 const PAGE_SIZE = 24;
@@ -19,6 +20,7 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [playingLabel, setPlayingLabel] = useState('');
   const [busyId, setBusyId] = useState('');
+  const [actionError, setActionError] = useState('');
   const [page, setPage] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
@@ -35,6 +37,7 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
 
   useEffect(() => {
     setPage(0);
+    setActionError('');
   }, [deviceId, camera]);
 
   const pageCount = Math.max(1, Math.ceil(segments.length / PAGE_SIZE));
@@ -52,6 +55,7 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
   const clock = formatClockUTC1(now);
   const rangeStart = segments.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
   const rangeEnd = Math.min(segments.length, (safePage + 1) * PAGE_SIZE);
+  const bannerError = actionError || error;
 
   return (
     <div className="recordings-view">
@@ -92,7 +96,7 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
         </button>
       </div>
 
-      {error && <div className="login-error rec-error">{error}</div>}
+      {bannerError && <div className="login-error rec-error">{bannerError}</div>}
 
       <div className="rec-layout">
         <aside className="rec-list-pane">
@@ -123,6 +127,10 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
                           setPlayingUrl(url);
                           setPlayingLabel(`${towerLabel} · CAM ${String(seg.camera).padStart(2, '0')}`);
                         })
+                        .catch((e: unknown) => {
+                          setPlayingUrl(null);
+                          setActionError(formatApiError(e, 'Could not play recording'));
+                        })
                         .finally(() => setBusyId(''));
                     }}
                   >
@@ -134,7 +142,9 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
                     disabled={busyId === seg.segment_id}
                     onClick={() => {
                       setBusyId(seg.segment_id);
-                      void download(seg).finally(() => setBusyId(''));
+                      void download(seg)
+                        .catch((e: unknown) => setActionError(formatApiError(e, 'Could not download recording')))
+                        .finally(() => setBusyId(''));
                     }}
                   >
                     DOWNLOAD
@@ -146,7 +156,9 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
                     onClick={() => {
                       if (!window.confirm('Delete this recording from cloud storage?')) return;
                       setBusyId(seg.segment_id);
-                      void remove(seg.segment_id).finally(() => setBusyId(''));
+                      void remove(seg.segment_id)
+                        .catch((e: unknown) => setActionError(formatApiError(e, 'Could not delete recording')))
+                        .finally(() => setBusyId(''));
                     }}
                   >
                     DELETE

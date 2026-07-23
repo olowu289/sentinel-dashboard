@@ -46,8 +46,11 @@ async function apiJson<T>(
   const res = await fetch(apiUrl(session.baseUrl, path), { ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const code = typeof body?.error?.code === 'string' ? body.error.code : undefined;
     const msg = body?.error?.message ?? body?.detail ?? res.statusText;
-    throw new Error(msg || `HTTP ${res.status}`);
+    const err = new Error(msg || `HTTP ${res.status}`) as Error & { code?: string };
+    if (code) err.code = code;
+    throw err;
   }
   return body as T;
 }

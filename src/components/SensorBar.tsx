@@ -6,6 +6,7 @@ interface Props {
   sensors: Sensor[];
   deviceName: string;
   connected: boolean;
+  linkError?: string;
   onOpenDetail: () => void;
 }
 
@@ -14,7 +15,7 @@ interface Props {
  * DETAILS button that opens the full sensor panel. Only sensors the tower
  * actually reports are shown as chips.
  */
-export default function SensorBar({ sensors, deviceName, connected, onOpenDetail }: Props) {
+export default function SensorBar({ sensors, deviceName, connected, linkError, onOpenDetail }: Props) {
   const chips = sensors.filter((s) => s.inBar && s.available !== false);
 
   return (
@@ -44,7 +45,7 @@ export default function SensorBar({ sensors, deviceName, connected, onOpenDetail
       })}
 
       <div className="sb-right">
-        <span className="sb-live" title={connected ? 'Platform API can reach this tower via the hub' : 'Tower unreachable via hub'}>
+        <span className="sb-live" title={connected ? 'Platform API can reach this tower via the hub' : (linkError || 'Tower link lost — check hub proxy, VPN, or tower gateway')}>
           <span className="sb-live-dot" style={{ background: connected ? colors.accent : colors.offline, boxShadow: `0 0 8px ${connected ? colors.accent : colors.offline}` }} />
           {connected ? 'LINK LIVE' : 'LINK OFFLINE'}
         </span>

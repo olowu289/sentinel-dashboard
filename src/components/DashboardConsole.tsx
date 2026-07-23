@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { colors, font } from '../tokens';
 import { formatClockUTC1 } from '../clock';
-import { errMsg } from '../util';
+import { formatApiError, linkStatusLabel } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { useTowerLive } from '../useTowerLive';
@@ -31,14 +31,14 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const { client, session } = usePlatform();
   const [selectedCamId, setSelectedCamId] = useState('01');
   const {
-    streams, status, connected, cameras, alerts, hlsUrls,
+    streams, status, connected, linkError, cameras, alerts, hlsUrls,
     recording, setRecordingLocal,
   } = useTowerLive(deviceId, selectedCamId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
   const ngrok = session.baseUrl.includes('ngrok');
   // Hub reachability (Platform API can talk to the tower via hub) — not sensor health.
   const linkColor = connected ? colors.accent : colors.offline;
-  const linkLabel = connected ? 'Hub link live' : 'Hub link offline';
+  const linkLabel = linkStatusLabel(connected, linkError);
 
   const [now, setNow] = useState(() => Date.now());
   const [controlOpen, setControlOpen] = useState(true);
@@ -108,14 +108,14 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     jogDir.current = dir;
     // Fire immediately on press so Network shows a move and the camera reacts
     // without waiting for hold threshold or pointer-up.
-    void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg(`ptz ${dir}`)).catch((e: unknown) => setPtzMsg(`move failed: ${errMsg(e)}`));
+    void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg(`ptz ${dir}`)).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
     jogTimer.current = window.setTimeout(() => {
       jogTimer.current = undefined;
       jogging.current = true;
       bumpLiveSync();
       setPtzMsg('jog…');
       jogInterval.current = window.setInterval(() => {
-        void sendMove(dir, 0, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`move failed: ${errMsg(e)}`));
+        void sendMove(dir, 0, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
       }, PTZ_JOG_MS);
     }, PTZ_HOLD_MS);
   }, [stopJog, sendMove, bumpLiveSync]);
@@ -134,7 +134,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const zoomBy = useCallback((d: number) => {
     bumpLiveSync();
     const dir = d > 0 ? 1 : -1;
-    void sendMove(null, dir, PTZ_PULSE_SEC).then(() => setPtzMsg('zoom ok')).catch((e: unknown) => setPtzMsg(`zoom failed: ${errMsg(e)}`));
+    void sendMove(null, dir, PTZ_PULSE_SEC).then(() => setPtzMsg('zoom ok')).catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
   }, [sendMove, bumpLiveSync]);
 
   const captureSnapshot = useCallback(async (camId: string) => {
@@ -148,7 +148,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
       URL.revokeObjectURL(url);
       return 'downloaded';
     } catch (e) {
-      setPtzMsg(`snapshot failed: ${e instanceof Error ? e.message : String(e)}`);
+      setPtzMsg(`snapshot failed: ${formatApiError(e)}`);
       return null;
     }
   }, [client, deviceId, camNum]);
@@ -164,7 +164,10 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
       if (res.error) {
         setPtzMsg(`recording failed: ${res.error.message ?? res.error.code ?? 'error'}`);
       } else if (res.persist_ok === false) {
-        setPtzMsg(`recording ${next ? 'ON' : 'OFF'} (live) — persist warning`);
+        setPtzMsg(
+          `recording ${next ? 'ON' : 'OFF'} live, but settings may not survive reboot`
+          + (res.persist_error ? ` (${res.persist_error})` : ''),
+        );
       } else {
         setPtzMsg(`recording ${next ? 'ON' : 'OFF'}`);
       }
@@ -172,7 +175,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         console.warn('recording warnings', res.warnings);
       }
     } catch (e) {
-      setPtzMsg(`recording failed: ${errMsg(e)}`);
+      setPtzMsg(`recording failed: ${formatApiError(e)}`);
     } finally {
       setRecBusy(false);
     }
@@ -182,7 +185,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     bumpLiveSync();
     void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01'), home: true })
       .then(() => setPtzMsg('home ok'))
-      .catch((e: unknown) => setPtzMsg(`home failed: ${errMsg(e)}`));
+      .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`));
   }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
 
   useEffect(() => {
@@ -211,7 +214,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         </div>
       </header>
 
-      <SensorBar sensors={sensors} deviceName={deviceLabel} connected={connected} onOpenDetail={() => setPanelOpen(true)} />
+      <SensorBar sensors={sensors} deviceName={deviceLabel} connected={connected} linkError={linkError} onOpenDetail={() => setPanelOpen(true)} />
 
       <main className={`console${controlOpen ? '' : ' collapsed'}`}>
         <button className="panel-toggle" onClick={() => setControlOpen((v) => !v)} aria-expanded={controlOpen}>
@@ -220,7 +223,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
         <section className={`grid${spotlight ? ' spotlight' : ''}`}>
           {!connected && cameras.every((c) => c.status === 'STANDBY') && (
-            <div className="feed-loading" role="status">Tower unreachable via hub</div>
+            <div className="feed-loading" role="status">{linkLabel}</div>
           )}
           {cameras.map((c) => (
             <TowerFeed

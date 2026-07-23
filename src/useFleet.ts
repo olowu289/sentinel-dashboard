@@ -3,7 +3,7 @@ import type { Tower as ApiTower } from '@sentinel/sdk';
 import type { Tower } from './types';
 import { towerDisplayName } from './session';
 import { usePlatform } from './platformContext';
-import { errMsg } from './util';
+import { formatApiError } from './util';
 
 /** Registry-backed tower list for the selected customer. */
 export function useFleet(): {
@@ -21,7 +21,7 @@ export function useFleet(): {
     setLoading(true);
     client.listCustomerTowers(session.customerId)
       .then((t: ApiTower[]) => { setApiTowers(t); setError(''); })
-      .catch((e: unknown) => setError(errMsg(e)))
+      .catch((e: unknown) => setError(formatApiError(e, 'Could not load fleet')))
       .finally(() => setLoading(false));
   };
 

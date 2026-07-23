@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { usePlatform } from './platformContext';
-import { errMsg } from './util';
+import { formatApiError } from './util';
 import {
   deleteRecording,
   getDownloadUrl,
@@ -33,7 +33,7 @@ export function useRecordings(
       setSegments(res.segments);
       setRetentionDays(res.retention_days);
     } catch (e) {
-      setError(errMsg(e));
+      setError(formatApiError(e, 'Could not load cloud recordings'));
     } finally {
       setLoading(false);
     }
