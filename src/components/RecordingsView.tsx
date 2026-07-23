@@ -137,9 +137,9 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
         <div className="rec-player-pane">
           <div className="rec-player-head">{playingLabel || 'Select a segment to play'}</div>
           {playingUrl ? (
-            <video className="rec-player" controls autoPlay src={playingUrl} />
+            <video className="rec-player" controls autoPlay playsInline preload="metadata" src={playingUrl} />
           ) : (
-            <div className="rec-player-empty">Presigned playback from S3</div>
+            <div className="rec-player-empty">Select a segment to play</div>
           )}
         </div>
       </div>
