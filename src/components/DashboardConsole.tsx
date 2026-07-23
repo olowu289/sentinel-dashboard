@@ -101,34 +101,35 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     jogDir.current = null;
   }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
 
-  const nudge = useCallback((dir: PanDir) => {
-    bumpLiveSync();
-    void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg('move ok')).catch((e: unknown) => setPtzMsg(`move failed: ${errMsg(e)}`));
-  }, [sendMove, bumpLiveSync]);
-
   const panStart = useCallback((dir: PanDir) => {
     stopJog();
     bumpLiveSync();
+    setPtzMsg(`ptz ${dir}…`);
     jogDir.current = dir;
+    // Fire immediately on press so Network shows a move and the camera reacts
+    // without waiting for hold threshold or pointer-up.
+    void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg(`ptz ${dir}`)).catch((e: unknown) => setPtzMsg(`move failed: ${errMsg(e)}`));
     jogTimer.current = window.setTimeout(() => {
       jogTimer.current = undefined;
       jogging.current = true;
       bumpLiveSync();
-      void sendMove(dir, 0, PTZ_PULSE_SEC);
-      jogInterval.current = window.setInterval(() => { void sendMove(dir, 0, PTZ_PULSE_SEC); }, PTZ_JOG_MS);
+      setPtzMsg('jog…');
+      jogInterval.current = window.setInterval(() => {
+        void sendMove(dir, 0, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`move failed: ${errMsg(e)}`));
+      }, PTZ_JOG_MS);
     }, PTZ_HOLD_MS);
   }, [stopJog, sendMove, bumpLiveSync]);
 
   const panEnd = useCallback(() => {
+    // Tap already sent a pulse on panStart; only clear hold-to-jog if still pending.
     if (jogTimer.current !== undefined) {
       window.clearTimeout(jogTimer.current);
       jogTimer.current = undefined;
-      if (jogDir.current) nudge(jogDir.current);
       jogDir.current = null;
       return;
     }
     stopJog();
-  }, [nudge, stopJog]);
+  }, [stopJog]);
 
   const zoomBy = useCallback((d: number) => {
     bumpLiveSync();
