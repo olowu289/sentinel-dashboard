@@ -34,7 +34,6 @@ export default function Login({ onLogin }: Props) {
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
           <span style={{ fontFamily: font.display, fontSize: 28, letterSpacing: '.2em', color: colors.textBright }}>SENTINEL</span>
-          <span style={{ fontFamily: font.mono, fontSize: 11, letterSpacing: '.2em', color: colors.textFaint }}>TERRA DASHBOARD</span>
         </div>
         <label>
           <span>Control plane URL</span>
