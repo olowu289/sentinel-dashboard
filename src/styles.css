@@ -109,6 +109,13 @@ body {
   font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .04em; color: #9aa6b0;
   white-space: nowrap; pointer-events: none;
 }
+.cam-degraded-badge {
+  position: absolute; right: 6px; top: 6px;
+  padding: 3px 8px; border-radius: 4px; background: rgba(6, 9, 11, .7);
+  border: 1px solid rgba(255, 176, 32, .45);
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .04em; color: #FFB020;
+  white-space: nowrap; pointer-events: none;
+}
 
 /* ---- per-tile action toolbar ---- */
 .tile-toolbar {

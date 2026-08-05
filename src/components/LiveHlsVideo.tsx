@@ -362,6 +362,7 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     <div className="cam-video-wrap">
       <video ref={videoRef} className="cam-video" muted playsInline autoPlay />
       {!playing && <div className="cam-note">{note}</div>}
+      {streamReady && <div className="cam-degraded-badge">DEGRADED · delayed feed</div>}
     </div>
   );
 }
