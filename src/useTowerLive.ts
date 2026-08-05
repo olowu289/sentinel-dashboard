@@ -23,6 +23,8 @@ export interface TowerLive {
   alerts: AlertEvent[];
   /** Platform HLS playlist URLs keyed by camera id ("01"…"04"). */
   hlsUrls: Record<string, string>;
+  /** Platform WHEP create-session URLs keyed by camera id ("01"…"04"). */
+  webrtcUrls: Record<string, string>;
   /** Continuous NVR recording status from Platform API (null while unknown). */
   recording: RecordingStatus | null;
   refreshRecording: () => Promise<void>;
@@ -53,6 +55,11 @@ function defaultCameras(): Camera[] {
 function playlistUrl(baseUrl: string, deviceId: string, camera: number): string {
   const base = baseUrl.replace(/\/$/, '');
   return `${base}/v1/towers/${encodeURIComponent(deviceId)}/live/cam${camera}/index.m3u8`;
+}
+
+function whepUrl(baseUrl: string, deviceId: string, camera: number): string {
+  const base = baseUrl.replace(/\/$/, '');
+  return `${base}/v1/towers/${encodeURIComponent(deviceId)}/webrtc/cam${camera}/whep`;
 }
 
 export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLive {
@@ -182,10 +189,12 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
     const pos = ptz[c.id];
     const camNum = parseInt(c.id, 10) || 1;
     const hls = playlistUrl(session.baseUrl, deviceId, camNum);
+    const whep = whepUrl(session.baseUrl, deviceId, camNum);
     return {
       ...c,
       status: cstatus,
       hlsUrl: hls,
+      webrtcUrl: whep,
       az: pos?.az ?? 0,
       el: pos?.el ?? 0,
       zoom: pos?.zoom ?? 0,
@@ -195,8 +204,10 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
   });
 
   const hlsUrls: Record<string, string> = {};
+  const webrtcUrls: Record<string, string> = {};
   for (const c of cameras) {
     if (c.hlsUrl) hlsUrls[c.id] = c.hlsUrl;
+    if (c.webrtcUrl) webrtcUrls[c.id] = c.webrtcUrl;
   }
 
   return {
@@ -207,6 +218,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
     cameras,
     alerts,
     hlsUrls,
+    webrtcUrls,
     recording,
     refreshRecording,
     setRecordingLocal: setRecording,

@@ -7,6 +7,7 @@ export interface Camera {
   status: CameraStatus;
   mjpegUrl?: string;
   hlsUrl?: string;
+  webrtcUrl?: string;
   az: number;
   el: number;
   zoom: number;

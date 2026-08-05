@@ -31,7 +31,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const { client, session } = usePlatform();
   const [selectedCamId, setSelectedCamId] = useState('01');
   const {
-    streams, status, connected, linkError, cameras, alerts, hlsUrls,
+    streams, status, connected, linkError, cameras, alerts, hlsUrls, webrtcUrls,
     recording, setRecordingLocal,
   } = useTowerLive(deviceId, selectedCamId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
@@ -237,6 +237,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
               hlsUrl={c.id === selectedCam?.id ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
+              whepUrl={c.id === selectedCam?.id ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined}
               syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
               apiKey={session.apiKey}
               ngrok={ngrok}
@@ -257,7 +258,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               <Metric k="AZIMUTH" v={selectedCam.ptzLive ? `${pad3(selectedCam.az)}°` : '—'} />
               <Metric k="ELEVATION" v={selectedCam.ptzLive ? `${elFmt(selectedCam.el)}°` : '—'} />
               <Metric k="ZOOM" v={selectedCam.ptzLive ? formatZoom(selectedCam.zoom) : '—'} />
-              <Metric k="STREAM" v={selectedCam.status === 'ONLINE' ? 'HLS LIVE' : selectedCam.status} />
+              <Metric k="STREAM" v={selectedCam.status === 'ONLINE' ? 'LIVE' : selectedCam.status} />
             </div>
             <button
               className={`rec-btn${recording?.enabled ? ' rec-btn--on' : ''}`}

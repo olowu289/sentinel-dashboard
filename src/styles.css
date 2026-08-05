@@ -103,6 +103,12 @@ body {
   font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .06em; color: #9aa6b0;
   white-space: nowrap; pointer-events: none;
 }
+.cam-webrtc-stats {
+  position: absolute; left: 6px; bottom: 6px;
+  padding: 3px 8px; border-radius: 4px; background: rgba(6, 9, 11, .7);
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .04em; color: #9aa6b0;
+  white-space: nowrap; pointer-events: none;
+}
 
 /* ---- per-tile action toolbar ---- */
 .tile-toolbar {

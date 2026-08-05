@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import type { Camera } from '../types';
 import { colors, font } from '../tokens';
 import { formatZoom } from '../ptzMetrics';
-import LiveHlsVideo from './LiveHlsVideo';
+import LiveVideo from './LiveVideo';
 
 interface Props {
   camera: Camera;
@@ -14,8 +14,10 @@ interface Props {
   onSelect: () => void;
   onToggleSpotlight: () => void;
   onSnapshot: () => Promise<string | null>;
-  /** Platform API HLS playlist URL */
+  /** Platform API HLS playlist URL — compatibility fallback */
   hlsUrl?: string;
+  /** Platform API WHEP create-session URL — tried first, sub-second latency */
+  whepUrl?: string;
   apiKey: string;
   ngrok?: boolean;
   /** When set, snap this tile to the live HLS edge (PTZ on selected camera). */
@@ -33,12 +35,12 @@ const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e
  */
 export default function TowerFeed({
   camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot,
-  hlsUrl, apiKey, ngrok = false, syncLiveTick,
+  hlsUrl, whepUrl, apiKey, ngrok = false, syncLiveTick,
 }: Props) {
   const [flash, setFlash] = useState(false);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const streamReady = camera.status === 'ONLINE';
-  const hasSource = !!hlsUrl && streamReady;
+  const hasSource = !!(whepUrl || hlsUrl) && streamReady;
 
   const statusColor =
     camera.status === 'ONLINE' ? accent : camera.status === 'STANDBY' ? colors.standby : colors.offline;
@@ -75,9 +77,10 @@ export default function TowerFeed({
         </>
       )}
 
-      {hlsUrl && (
-        <LiveHlsVideo
+      {(whepUrl || hlsUrl) && (
+        <LiveVideo
           hlsUrl={hlsUrl}
+          whepUrl={whepUrl}
           apiKey={apiKey}
           streamReady={streamReady}
           ngrok={ngrok}
@@ -126,7 +129,7 @@ export default function TowerFeed({
           PTZ {pad3(camera.az)}·{elFmt(camera.el)}
           &nbsp; {camera.ptzLive ? `Z${formatZoom(camera.zoom)}` : 'Z—'}
         </span>
-        <span>{hasSource ? 'HLS · LIVE' : (hlsUrl ? 'HLS · WAITING' : 'SELECT · LIVE')}</span>
+        <span>{hasSource ? 'LIVE' : ((whepUrl || hlsUrl) ? 'WAITING' : 'SELECT · LIVE')}</span>
       </div>
 
       {flash && <div className="snap-flash" style={{ position: 'absolute', inset: 0, background: '#eef3f7', pointerEvents: 'none', zIndex: 3 }} />}
