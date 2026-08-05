@@ -200,7 +200,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   return (
     <div className="app">
       <header className="topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="topbar-brand-group" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontFamily: font.display, fontWeight: 700, fontSize: 24, letterSpacing: '.24em', color: colors.textBright }}>SENTINEL</span>
           <span style={{ fontFamily: font.display, fontWeight: 500, fontSize: 14, letterSpacing: '.32em', color: colors.textFaint }}>LIVE</span>
           <span className="device-pill" title={linkLabel}>
