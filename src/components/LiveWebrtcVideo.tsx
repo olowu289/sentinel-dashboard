@@ -32,6 +32,12 @@ const STREAM_STARTING_RETRY_DELAY_MS = 2000;
 const DRIFT_RESYNC_THRESHOLD_SEC = 4;
 /** Don't resync a session that only just connected — give it a chance to settle. */
 const DRIFT_MIN_SESSION_AGE_MS = 20000;
+/**
+ * Minimum time between resyncs, regardless of session boundaries (a resync
+ * starts a fresh session, so this has to live outside the per-effect closure
+ * to survive it — see lastResyncAtRef below).
+ */
+const DRIFT_MIN_RESYNC_INTERVAL_MS = 60000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -90,6 +96,9 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
   /** Bumped by the drift watchdog to force a fresh session without going through
    * the parent's HLS circuit-breaker — a resync is not a failure. */
   const [epoch, setEpoch] = useState(0);
+  /** Persists across resyncs (each one restarts the effect below with a fresh
+   * closure) so the minimum-interval gate actually spans multiple sessions. */
+  const lastResyncAtRef = useRef(0);
 
   useEffect(() => {
     setPlaying(false);
@@ -131,7 +140,8 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
     let statsTimer: number | undefined;
     let connectedAtMs: number | null = null;
     let baselineFreezesSec: number | null = null;
-    let resyncTriggered = false;
+    let prevDriftSec: number | null = null;
+    let driftGrowthStreak = 0;
 
     const fail = (err?: unknown) => {
       if (cancelled) return;
@@ -185,16 +195,31 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
         // of how far behind live we've drifted. A big number here is the "smooth but
         // delayed" symptom accumulating quietly — tear down and reconnect fresh rather
         // than let it grow unbounded. Not a failure, so onFatalError is never called.
+        // Calmer on purpose: a *stable* drift (e.g. sitting at 4.5s) on an otherwise
+        // healthy stream must not churn the player — only a drift that's still
+        // growing across two consecutive polls, and only at most once a minute,
+        // triggers a resync.
         let driftText = '';
-        if (connectedAtMs != null && !resyncTriggered) {
+        if (connectedAtMs != null) {
           if (baselineFreezesSec === null) baselineFreezesSec = sample.totalFreezesDurationSec;
           const driftSec = (sample.totalFreezesDurationSec - baselineFreezesSec)
             + (jitterBufferMs != null ? jitterBufferMs / 1000 : 0);
           driftText = ` · drift ~${driftSec.toFixed(1)}s`;
+
+          const isGrowing = prevDriftSec != null && driftSec > prevDriftSec;
+          driftGrowthStreak = isGrowing ? driftGrowthStreak + 1 : 0;
+          prevDriftSec = driftSec;
+
           const sessionAgeMs = Date.now() - connectedAtMs;
-          if (driftSec > DRIFT_RESYNC_THRESHOLD_SEC && sessionAgeMs >= DRIFT_MIN_SESSION_AGE_MS) {
-            resyncTriggered = true;
-            console.info(`[webrtc] drift ~${driftSec.toFixed(1)}s — resyncing to live`);
+          const sinceLastResyncMs = Date.now() - lastResyncAtRef.current;
+          if (
+            driftSec > DRIFT_RESYNC_THRESHOLD_SEC
+            && driftGrowthStreak >= 2
+            && sessionAgeMs >= DRIFT_MIN_SESSION_AGE_MS
+            && sinceLastResyncMs >= DRIFT_MIN_RESYNC_INTERVAL_MS
+          ) {
+            lastResyncAtRef.current = Date.now();
+            console.info(`[webrtc] drift ~${driftSec.toFixed(1)}s and still growing — resyncing to live`);
             setEpoch((e) => e + 1);
           }
         }
