@@ -28,16 +28,23 @@ const CONNECT_TIMEOUT_MS = 15000;
 const STREAM_STARTING_MAX_RETRIES = 10;
 const STREAM_STARTING_RETRY_DELAY_MS = 2000;
 
-/** Estimated seconds of accumulated lag before we tear down and reconnect fresh. */
-const DRIFT_RESYNC_THRESHOLD_SEC = 4;
-/** Don't resync a session that only just connected — give it a chance to settle. */
+/** Estimated seconds of accumulated lag before we attempt a resync. */
+const DRIFT_RESYNC_THRESHOLD_SEC = 2.5;
+/** Don't resync a session that only just connected (or just swapped in) — give it a chance to settle. */
 const DRIFT_MIN_SESSION_AGE_MS = 20000;
 /**
  * Minimum time between resyncs, regardless of session boundaries (a resync
  * starts a fresh session, so this has to live outside the per-effect closure
- * to survive it — see lastResyncAtRef below).
+ * to survive it — see lastResyncAtRef below). Counts from the moment a
+ * make-before-break swap actually completes, not from when it was triggered.
  */
 const DRIFT_MIN_RESYNC_INTERVAL_MS = 60000;
+/**
+ * Overall budget for a background replacement connection (negotiate + connect
+ * + confirm frames decoding). If it hasn't swapped in by this point, abandon
+ * it and fall back to the old visible-reconnect behavior for this attempt.
+ */
+const REPLACEMENT_TIMEOUT_MS = 20000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -84,6 +91,57 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 /**
+ * Non-trickle WHEP negotiation shared by both the primary connection and a
+ * background replacement: gather ICE to completion (or a timeout), send one
+ * offer, optionally retry on the backend's stream_starting contract. Returns
+ * undefined if cancelled before any attempt ever succeeded.
+ */
+async function negotiateWhepSession(
+  pc: RTCPeerConnection,
+  whepUrl: string,
+  apiKey: string,
+  ngrok: boolean,
+  isCancelled: () => boolean,
+  retryStreamStarting: boolean,
+): Promise<{ answerSdp: string; sessionUrl: string } | undefined> {
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      if (pc.iceGatheringState === 'complete') { resolve(); return; }
+      const check = () => {
+        if (pc.iceGatheringState === 'complete') {
+          pc.removeEventListener('icegatheringstatechange', check);
+          resolve();
+        }
+      };
+      pc.addEventListener('icegatheringstatechange', check);
+    }),
+    new Promise<void>((resolve) => { window.setTimeout(resolve, ICE_GATHER_TIMEOUT_MS); }),
+  ]);
+  if (isCancelled()) return undefined;
+
+  // pc.localDescription.sdp, not the original `offer` object — the browser
+  // mutates it in place as candidates are discovered during the race above.
+  const offerSdp = pc.localDescription!.sdp;
+  for (let attempt = 0; !isCancelled(); attempt += 1) {
+    try {
+      return await postWhepOffer({ apiKey, ngrok }, whepUrl, offerSdp);
+    } catch (err) {
+      const code = (err as { code?: string } | undefined)?.code;
+      if (retryStreamStarting && code === 'stream_starting' && attempt < STREAM_STARTING_MAX_RETRIES) {
+        await delay(STREAM_STARTING_RETRY_DELAY_MS);
+        continue;
+      }
+      throw err;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Low-latency live video via WHEP. Gathers ICE to completion (or a timeout) and sends
  * one offer — no PATCH/trickle round trip (see webrtcApi.ts). Falls back to HLS (via
  * the LiveVideo wrapper) on any unrecoverable failure or connect timeout.
@@ -93,11 +151,13 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
   const [note, setNote] = useState('connecting…');
   const [playing, setPlaying] = useState(false);
   const [statsText, setStatsText] = useState('');
-  /** Bumped by the drift watchdog to force a fresh session without going through
-   * the parent's HLS circuit-breaker — a resync is not a failure. */
+  /** Bumped only when a background replacement fails/times out — the old,
+   * visible teardown/rebuild fallback for that case. A successful drift
+   * resync never touches this; see attemptReplacement below. */
   const [epoch, setEpoch] = useState(0);
-  /** Persists across resyncs (each one restarts the effect below with a fresh
-   * closure) so the minimum-interval gate actually spans multiple sessions. */
+  /** Persists across resyncs (a swap reassigns pc/sessionUrl in place, so this
+   * effect never actually restarts on a successful resync) so the minimum-
+   * interval gate spans the whole component lifetime, not just one session. */
   const lastResyncAtRef = useRef(0);
 
   useEffect(() => {
@@ -142,6 +202,10 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
     let baselineFreezesSec: number | null = null;
     let prevDriftSec: number | null = null;
     let driftGrowthStreak = 0;
+    let replacementInFlight = false;
+    /** Set while a background replacement is mid-flight; lets the effect's own
+     * unmount cleanup abandon it too (closes its pc, deletes its session). */
+    let activeReplacementCleanup: (() => void) | null = null;
 
     const fail = (err?: unknown) => {
       if (cancelled) return;
@@ -150,6 +214,130 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
       if (statsTimer) window.clearInterval(statsTimer);
       pc?.close();
       onFatalError(err);
+    };
+
+    // Bound to whichever RTCPeerConnection is currently "the" connection — a
+    // successful make-before-break swap reassigns `pc` and re-attaches this
+    // same handler to the new one, so future real lifecycle events (e.g. a
+    // later genuine failure) are handled identically to the original session.
+    const onConnectionStateChange = () => {
+      if (cancelled || !pc) return;
+      if (pc.connectionState === 'connected') {
+        if (connectTimer) { window.clearTimeout(connectTimer); connectTimer = undefined; }
+        connectedAtMs = Date.now();
+        onConnected?.();
+      } else if (pc.connectionState === 'failed') {
+        fail(new Error('webrtc connection failed'));
+      }
+    };
+
+    /**
+     * Make-before-break drift resync: negotiate a second, fully independent
+     * connection in the background (same technique as LiveVideo's HLS-side
+     * probe), and only once it's actually connected AND decoding real frames,
+     * swap the visible <video>.srcObject to it — a single synchronous
+     * assignment, no unmount, no black frame. Any failure or a >20s overall
+     * timeout abandons the replacement and falls back to the old visible
+     * teardown/rebuild (epoch bump) for this attempt.
+     */
+    const attemptReplacement = async (driftAtTriggerSec: number) => {
+      if (replacementInFlight || cancelled) return;
+      replacementInFlight = true;
+      console.info(`[webrtc] replacement started (drift ~${driftAtTriggerSec.toFixed(1)}s)`);
+
+      const newPc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      let newStream: MediaStream | null = null;
+      let newSessionUrl: string | undefined;
+      let settled = false;
+      let timeoutHandle: number | undefined;
+
+      const abandon = (reason: string) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutHandle) window.clearTimeout(timeoutHandle);
+        newPc.close();
+        if (newSessionUrl) void deleteWhepSession({ apiKey, ngrok }, newSessionUrl);
+        activeReplacementCleanup = null;
+        replacementInFlight = false;
+        if (cancelled) return; // unmounting/superseded — no visible fallback needed
+        console.info(`[webrtc] replacement failed (${reason}) — falling back to visible reconnect`);
+        setEpoch((e) => e + 1);
+      };
+
+      activeReplacementCleanup = () => {
+        if (timeoutHandle) window.clearTimeout(timeoutHandle);
+        newPc.close();
+        if (newSessionUrl) void deleteWhepSession({ apiKey, ngrok }, newSessionUrl);
+      };
+
+      timeoutHandle = window.setTimeout(() => abandon('timeout'), REPLACEMENT_TIMEOUT_MS);
+      newPc.ontrack = (ev) => { newStream = ev.streams[0]; };
+
+      try {
+        const session = await negotiateWhepSession(
+          newPc, whepUrl, apiKey, ngrok, () => settled || cancelled, false,
+        );
+        if (!session || settled || cancelled) { abandon('negotiation did not complete'); return; }
+        newSessionUrl = session.sessionUrl;
+
+        await newPc.setRemoteDescription({ type: 'answer', sdp: session.answerSdp });
+        if (settled || cancelled) { abandon('cancelled after answer'); return; }
+
+        const connected = await new Promise<boolean>((resolve) => {
+          newPc.onconnectionstatechange = () => {
+            if (newPc.connectionState === 'connected') resolve(true);
+            else if (newPc.connectionState === 'failed') resolve(false);
+          };
+        });
+        if (!connected || settled || cancelled) { abandon('replacement connection failed'); return; }
+
+        // "Connected" alone isn't proof the stream actually works — confirm
+        // the decoder is producing real frames before treating it as ready.
+        const framesOk = await new Promise<boolean>((resolve) => {
+          const check = async () => {
+            if (settled || cancelled) { resolve(false); return; }
+            try {
+              const report = await newPc.getStats();
+              const inbound = Array.from(report.values()).find(
+                (r) => (r as { type?: string }).type === 'inbound-rtp' && (r as { kind?: string }).kind === 'video',
+              ) as { framesDecoded?: number } | undefined;
+              if (inbound && (inbound.framesDecoded ?? 0) > 0) { resolve(true); return; }
+            } catch { /* try again next tick */ }
+            window.setTimeout(check, 300);
+          };
+          void check();
+        });
+        if (!framesOk || settled || cancelled || !newStream) {
+          abandon(!newStream ? 'no track received' : 'replacement frames never decoded');
+          return;
+        }
+
+        // --- Make-before-break swap: single synchronous srcObject assignment. ---
+        settled = true;
+        if (timeoutHandle) window.clearTimeout(timeoutHandle);
+
+        const oldPc = pc;
+        const oldSessionUrl = sessionUrl;
+
+        if (videoRef.current) videoRef.current.srcObject = newStream;
+        pc = newPc;
+        sessionUrl = newSessionUrl;
+        pc.onconnectionstatechange = onConnectionStateChange;
+        connectedAtMs = Date.now();
+        baselineFreezesSec = null;
+        prevDriftSec = null;
+        driftGrowthStreak = 0;
+        lastResyncAtRef.current = Date.now();
+
+        oldPc?.close();
+        if (oldSessionUrl) void deleteWhepSession({ apiKey, ngrok }, oldSessionUrl);
+
+        activeReplacementCleanup = null;
+        replacementInFlight = false;
+        console.info(`[webrtc] swap completed (drift ${driftAtTriggerSec.toFixed(1)}s -> ~0.0s)`);
+      } catch (err) {
+        abandon(err instanceof Error ? err.message : 'error');
+      }
     };
 
     // Standard WebRTC stats — jitterBufferDelay/jitterBufferEmittedCount is the
@@ -193,12 +381,12 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
 
         // Drift watchdog: freezes plus current jitter buffer depth as a rough estimate
         // of how far behind live we've drifted. A big number here is the "smooth but
-        // delayed" symptom accumulating quietly — tear down and reconnect fresh rather
-        // than let it grow unbounded. Not a failure, so onFatalError is never called.
-        // Calmer on purpose: a *stable* drift (e.g. sitting at 4.5s) on an otherwise
-        // healthy stream must not churn the player — only a drift that's still
-        // growing across two consecutive polls, and only at most once a minute,
-        // triggers a resync.
+        // delayed" symptom accumulating quietly — resync fresh rather than let it grow
+        // unbounded. Not a failure, so onFatalError is never called. Calmer on purpose:
+        // a *stable* drift on an otherwise healthy stream must not churn anything —
+        // only a drift that's still growing across two consecutive polls, and only at
+        // most once a minute (counted from the last successful swap), triggers a
+        // background replacement attempt.
         let driftText = '';
         if (connectedAtMs != null) {
           if (baselineFreezesSec === null) baselineFreezesSec = sample.totalFreezesDurationSec;
@@ -218,9 +406,7 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
             && sessionAgeMs >= DRIFT_MIN_SESSION_AGE_MS
             && sinceLastResyncMs >= DRIFT_MIN_RESYNC_INTERVAL_MS
           ) {
-            lastResyncAtRef.current = Date.now();
-            console.info(`[webrtc] drift ~${driftSec.toFixed(1)}s and still growing — resyncing to live`);
-            setEpoch((e) => e + 1);
+            void attemptReplacement(driftSec);
           }
         }
 
@@ -243,56 +429,11 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
         if (video) video.srcObject = ev.streams[0];
       };
 
-      pc.onconnectionstatechange = () => {
-        if (cancelled || !pc) return;
-        if (pc.connectionState === 'connected') {
-          if (connectTimer) { window.clearTimeout(connectTimer); connectTimer = undefined; }
-          connectedAtMs = Date.now();
-          onConnected?.();
-        } else if (pc.connectionState === 'failed') {
-          fail(new Error('webrtc connection failed'));
-        }
-      };
+      pc.onconnectionstatechange = onConnectionStateChange;
 
       connectTimer = window.setTimeout(() => fail(new Error('webrtc connect timeout')), CONNECT_TIMEOUT_MS);
 
-      pc.addTransceiver('video', { direction: 'recvonly' });
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      // Non-trickle: wait for full ICE gathering (or a timeout), then send one offer.
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          if (pc!.iceGatheringState === 'complete') { resolve(); return; }
-          const check = () => {
-            if (pc!.iceGatheringState === 'complete') {
-              pc!.removeEventListener('icegatheringstatechange', check);
-              resolve();
-            }
-          };
-          pc!.addEventListener('icegatheringstatechange', check);
-        }),
-        new Promise<void>((resolve) => { window.setTimeout(resolve, ICE_GATHER_TIMEOUT_MS); }),
-      ]);
-      if (cancelled) return;
-
-      // pc.localDescription.sdp, not the original `offer` object — the browser
-      // mutates it in place as candidates are discovered during the race above.
-      const offerSdp = pc.localDescription!.sdp;
-      let session: { answerSdp: string; sessionUrl: string } | undefined;
-      for (let attempt = 0; !cancelled; attempt += 1) {
-        try {
-          session = await postWhepOffer({ apiKey, ngrok }, whepUrl, offerSdp);
-          break;
-        } catch (err) {
-          const code = (err as { code?: string } | undefined)?.code;
-          if (code === 'stream_starting' && attempt < STREAM_STARTING_MAX_RETRIES) {
-            await delay(STREAM_STARTING_RETRY_DELAY_MS);
-            continue;
-          }
-          throw err;
-        }
-      }
+      const session = await negotiateWhepSession(pc, whepUrl, apiKey, ngrok, () => cancelled, true);
       if (!session) return; // cancelled before any attempt ever succeeded — nothing to clean up
       if (cancelled) {
         // Succeeded right as we were torn down (unmount/camera-switch race) — the
@@ -325,10 +466,11 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
       if (statsTimer) window.clearInterval(statsTimer);
       if (sessionUrl) void deleteWhepSession({ apiKey, ngrok }, sessionUrl);
       pc?.close();
+      activeReplacementCleanup?.();
     };
     // apiKey/ngrok/streamReady intentionally excluded — see comment above.
-    // epoch is included on purpose: the drift watchdog bumps it to force this
-    // effect to tear down and rebuild a fresh session.
+    // epoch is included on purpose: a failed/timed-out background replacement
+    // bumps it to fall back to the old teardown/rebuild path for this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [whepUrl, epoch]);
 
