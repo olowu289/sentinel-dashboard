@@ -146,7 +146,9 @@
       try {
         res = await fetch(whepUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/sdp', 'X-Kallon-Api-Key': apiKey },
+          headers: apiKey
+            ? { 'Content-Type': 'application/sdp', 'X-Kallon-Api-Key': apiKey }
+            : { 'Content-Type': 'application/sdp' },
           body: offerSdp,
         });
       } catch (err) {
