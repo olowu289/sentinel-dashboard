@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>WHEP debug harness</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #12161a; color: #d8dee4; margin: 16px; }
+  label { display: block; margin-top: 8px; font-size: 12px; color: #9aa6b0; }
+  input { width: 100%; box-sizing: border-box; padding: 6px 8px; font-family: monospace; font-size: 13px; }
+  button { margin-top: 10px; margin-right: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
+  video { width: 480px; max-width: 100%; background: #000; margin-top: 12px; display: block; }
+  pre#log {
+    background: #06090b; color: #9aa6b0; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    padding: 10px; margin-top: 12px; height: 420px; overflow-y: auto; white-space: pre-wrap;
+    word-break: break-all; border: 1px solid #222;
+  }
+  .selected { color: #4ade80; font-weight: bold; }
+</style>
+</head>
+<body>
+  <h2>WHEP debug harness (standalone, no build step)</h2>
+
+  <label>API key</label>
+  <input id="apiKey" type="text" placeholder="X-Kallon-Api-Key value" />
+
+  <label>WHEP URL</label>
+  <input id="whepUrl" type="text"
+    value="https://kallon-sentry-production-2e5b.up.railway.app/v1/towers/kln_lab_000001/webrtc/cam1/whep" />
+
+  <button id="connectBtn">Connect</button>
+  <button id="disconnectBtn">Disconnect</button>
+
+  <video id="video" muted autoplay playsinline></video>
+
+  <pre id="log"></pre>
+
+<script>
+  const logEl = document.getElementById('log');
+  const video = document.getElementById('video');
+  const connectBtn = document.getElementById('connectBtn');
+  const disconnectBtn = document.getElementById('disconnectBtn');
+
+  let pc = null;
+  let sessionUrl = null;
+  let statsTimer = null;
+
+  function ts() {
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    return `${hh}:${mm}:${ss}.${ms}`;
+  }
+
+  function log(msg, cls) {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = `[${ts()}] ${msg}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function pollStats() {
+    if (!pc) return;
+    try {
+      const report = await pc.getStats();
+      const byId = {};
+      report.forEach((r) => { byId[r.id] = r; });
+      report.forEach((r) => {
+        if (r.type === 'candidate-pair') {
+          const l = byId[r.localCandidateId];
+          const rc = byId[r.remoteCandidateId];
+          const lStr = l ? `${l.candidateType}/${l.protocol} ${l.address}:${l.port}` : '?';
+          const rStr = rc ? `${rc.candidateType}/${rc.protocol} ${rc.address}:${rc.port}` : '?';
+          const line = `candidate-pair state=${r.state} nominated=${r.nominated} local=${lStr} remote=${rStr}`;
+          if (r.state === 'succeeded') {
+            log(`>>> SELECTED ${line}`, 'selected');
+          } else {
+            log(line);
+          }
+        }
+        if (r.type === 'inbound-rtp' && r.kind === 'video') {
+          log(`inbound-rtp: packetsReceived=${r.packetsReceived} packetsLost=${r.packetsLost} `
+            + `jitter=${r.jitter} framesDecoded=${r.framesDecoded} framesPerSecond=${r.framesPerSecond}`);
+        }
+      });
+    } catch (err) {
+      log(`getStats() error: ${err}`);
+    }
+  }
+
+  async function connect() {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    const whepUrl = document.getElementById('whepUrl').value.trim();
+    if (!whepUrl) { log('no WHEP URL given, aborting'); return; }
+
+    log(`--- connect() starting, whepUrl=${whepUrl} ---`);
+
+    pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+      ],
+    });
+
+    pc.oniceconnectionstatechange = () => log(`oniceconnectionstatechange: ${pc.iceConnectionState}`);
+    pc.onconnectionstatechange = () => log(`onconnectionstatechange: ${pc.connectionState}`);
+    pc.onicecandidateerror = (e) => {
+      log(`onicecandidateerror: errorCode=${e.errorCode} errorText=${e.errorText} url=${e.url}`);
+    };
+    pc.ontrack = (e) => {
+      video.srcObject = e.streams[0];
+      log(`ontrack: kind=${e.track.kind}, streams=${e.streams.length}`);
+    };
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    log('addTransceiver(video, recvonly) done');
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    log('createOffer + setLocalDescription done');
+
+    await new Promise((resolve) => {
+      if (pc.iceGatheringState === 'complete') { resolve(); return; }
+      const check = () => {
+        if (pc.iceGatheringState === 'complete') {
+          pc.removeEventListener('icegatheringstatechange', check);
+          resolve();
+        }
+      };
+      pc.addEventListener('icegatheringstatechange', check);
+      setTimeout(resolve, 4000);
+    });
+    log(`ICE gathering settled: iceGatheringState=${pc.iceGatheringState}`);
+
+    const offerSdp = pc.localDescription.sdp;
+    let answerRes = null;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      const t0 = performance.now();
+      let res;
+      try {
+        res = await fetch(whepUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp', 'X-Kallon-Api-Key': apiKey },
+          body: offerSdp,
+        });
+      } catch (err) {
+        log(`POST attempt ${attempt} -> network error: ${err}`);
+        log('STOPPED: fetch itself failed, leaving state as-is');
+        return;
+      }
+      const dt = Math.round(performance.now() - t0);
+      log(`POST attempt ${attempt} -> HTTP ${res.status} (${dt}ms)`);
+
+      if (res.status === 201) {
+        answerRes = res;
+        break;
+      }
+
+      const bodyText = await res.text();
+      let code = null;
+      try { code = JSON.parse(bodyText)?.error?.code; } catch { /* not JSON */ }
+
+      if (res.status === 503 && code === 'stream_starting' && attempt < 10) {
+        log(`  stream_starting (attempt ${attempt}/10), retrying in 2s`);
+        await sleep(2000);
+        continue;
+      }
+
+      log(`STOPPED: non-201 response, status=${res.status}, code=${code}`);
+      log(`  raw body: ${bodyText}`);
+      return;
+    }
+
+    if (!answerRes) {
+      log('STOPPED: exhausted all stream_starting retries without a 201');
+      return;
+    }
+
+    const location = answerRes.headers.get('Location');
+    log(`Location header: ${location}`);
+    sessionUrl = location ? new URL(location, new URL(whepUrl).origin).toString() : null;
+
+    const answerSdp = await answerRes.text();
+    await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    log('setRemoteDescription(answer) done');
+
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = setInterval(pollStats, 2000);
+    log('stats polling started (every 2s, indefinitely)');
+  }
+
+  async function disconnect() {
+    log('--- disconnect() (manual) ---');
+    if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+    if (sessionUrl) {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      try {
+        const res = await fetch(sessionUrl, {
+          method: 'DELETE',
+          headers: apiKey ? { 'X-Kallon-Api-Key': apiKey } : {},
+        });
+        log(`DELETE ${sessionUrl} -> HTTP ${res.status}`);
+      } catch (err) {
+        log(`DELETE failed: ${err}`);
+      }
+      sessionUrl = null;
+    }
+    if (pc) { pc.close(); pc = null; }
+    video.srcObject = null;
+    log('peer connection closed');
+  }
+
+  connectBtn.addEventListener('click', () => { connect().catch((err) => log(`connect() threw: ${err}`)); });
+  disconnectBtn.addEventListener('click', () => { disconnect().catch((err) => log(`disconnect() threw: ${err}`)); });
+
+  log('harness loaded, ready');
+</script>
+</body>
+</html>
