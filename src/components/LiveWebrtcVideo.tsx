@@ -57,10 +57,11 @@ export interface WebrtcStatsSample {
 
 declare global {
   interface Window {
-    __sentinelWebrtcMetrics?: {
+    /** Keyed by whepUrl — one bucket per concurrently-playing tile, not a singleton. */
+    __sentinelWebrtcMetrics?: Record<string, {
       samples: WebrtcStatsSample[];
       last: WebrtcStatsSample | null;
-    };
+    }>;
   }
 }
 
@@ -172,11 +173,13 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
           framesDropped: inbound.framesDropped ?? 0,
           framesDecoded: inbound.framesDecoded ?? 0,
         };
-        const bucket = window.__sentinelWebrtcMetrics ?? { samples: [], last: null };
+        const allMetrics = window.__sentinelWebrtcMetrics ?? {};
+        const bucket = allMetrics[whepUrl] ?? { samples: [], last: null };
         bucket.samples.push(sample);
         if (bucket.samples.length > 120) bucket.samples.shift();
         bucket.last = sample;
-        window.__sentinelWebrtcMetrics = bucket;
+        allMetrics[whepUrl] = bucket;
+        window.__sentinelWebrtcMetrics = allMetrics;
 
         // Drift watchdog: freezes plus current jitter buffer depth as a rough estimate
         // of how far behind live we've drifted. A big number here is the "smooth but

@@ -236,8 +236,8 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
               onSelect={() => setSelectedCamId(c.id)}
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
-              hlsUrl={c.id === selectedCam?.id ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
-              whepUrl={c.id === selectedCam?.id ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined}
+              hlsUrl={c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
+              whepUrl={c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined}
               syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
               apiKey={session.apiKey}
               ngrok={ngrok}

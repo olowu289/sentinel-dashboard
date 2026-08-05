@@ -27,11 +27,12 @@ export type LiveLatencySample = {
 
 declare global {
   interface Window {
-    __sentinelLiveMetrics?: {
+    /** Keyed by hlsUrl — one bucket per concurrently-playing tile, not a singleton. */
+    __sentinelLiveMetrics?: Record<string, {
       samples: LiveLatencySample[];
       last: LiveLatencySample | null;
       stalls: number;
-    };
+    }>;
   }
 }
 
@@ -132,11 +133,13 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     let lowBufferTicks = 0;
     let lastPtzSnapMs = 0;
 
-    window.__sentinelLiveMetrics = {
+    const allLiveMetrics = window.__sentinelLiveMetrics ?? {};
+    allLiveMetrics[hlsUrl] = {
       samples: [],
       last: null,
       stalls: 0,
     };
+    window.__sentinelLiveMetrics = allLiveMetrics;
 
     const bufferedAheadSec = (): number => {
       try {
@@ -170,7 +173,8 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
         lastProxyMs,
         lastHubUpstreamMs,
       };
-      const bucket = window.__sentinelLiveMetrics!;
+      const bucket = window.__sentinelLiveMetrics?.[hlsUrl];
+      if (!bucket) return;
       bucket.samples.push(sample);
       if (bucket.samples.length > 120) bucket.samples.shift();
       bucket.last = sample;
