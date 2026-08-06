@@ -1,14 +1,14 @@
 import type { Session } from './session';
 
 /**
- * set_home isn't in @sentinel/sdk (same reasoning as webrtcApi.ts: a small,
- * dashboard-local module for a platform route the SDK doesn't cover yet,
- * rather than a cross-repo SDK release for one new call).
+ * Small dashboard-local module for platform PTZ routes the SDK doesn't cover
+ * yet (same reasoning as webrtcApi.ts) — rather than a cross-repo SDK release
+ * for one or two calls.
  */
-export async function ptzSetHome(
+async function ptzPost(
   session: Session,
-  deviceId: string,
-  camera: number,
+  path: string,
+  body: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -16,15 +16,29 @@ export async function ptzSetHome(
   };
   if (session.apiKey) headers['X-Kallon-Api-Key'] = session.apiKey;
   if (session.baseUrl.includes('ngrok')) headers['ngrok-skip-browser-warning'] = '1';
-  const url = `${session.baseUrl.replace(/\/$/, '')}/v1/towers/${encodeURIComponent(deviceId)}/ptz/set-home`;
-  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ camera }) });
-  const body = await res.json().catch(() => ({}));
+  const url = `${session.baseUrl.replace(/\/$/, '')}${path}`;
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const resBody = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const code = typeof body?.error?.code === 'string' ? body.error.code : undefined;
-    const msg = body?.error?.message ?? body?.detail ?? res.statusText;
+    const code = typeof resBody?.error?.code === 'string' ? resBody.error.code : undefined;
+    const msg = resBody?.error?.message ?? resBody?.detail ?? res.statusText;
     const err = new Error(msg || `HTTP ${res.status}`) as Error & { code?: string };
     if (code) err.code = code;
     throw err;
   }
-  return body as Record<string, unknown>;
+  return resBody as Record<string, unknown>;
+}
+
+export function ptzSetHome(session: Session, deviceId: string, camera: number): Promise<Record<string, unknown>> {
+  return ptzPost(session, `/v1/towers/${encodeURIComponent(deviceId)}/ptz/set-home`, { camera });
+}
+
+/**
+ * Refreshes the daemon's 4s hold-to-move safety timeout while a continuous
+ * move is deliberately still held. Not a movement command — send roughly
+ * every 2s while held; best-effort (a dropped keepalive isn't fatal, it just
+ * means the safety timeout may fire a little early on that camera).
+ */
+export function ptzKeepalive(session: Session, deviceId: string, camera: number): Promise<Record<string, unknown>> {
+  return ptzPost(session, `/v1/towers/${encodeURIComponent(deviceId)}/ptz/keepalive`, { camera });
 }

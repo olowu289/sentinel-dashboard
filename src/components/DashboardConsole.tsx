@@ -7,7 +7,8 @@ import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { useTowerLive } from '../useTowerLive';
 import { formatZoom } from '../ptzMetrics';
-import { ptzSetHome } from '../ptzApi';
+import { ptzSetHome, ptzKeepalive } from '../ptzApi';
+import type { RailView } from './Rail';
 import TowerFeed from './TowerFeed';
 import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
@@ -17,8 +18,15 @@ import SensorPanel from './SensorPanel';
 const ACCENT = colors.accent;
 const PTZ_PULSE_SEC = 0.2;
 const PTZ_HOLD_MS = 180;
-const PTZ_JOG_MS = 280;
 const PTZ_SPEED_KEY = 'sentinel-ptz-speed';
+/** Hold-to-move keepalive cadence — well under the daemon's 4s safety
+ * timeout (kallon_ptz_daemon.py), so a normal 2s tick never risks a
+ * mid-hold auto-stop even with some network jitter. */
+const PTZ_KEEPALIVE_MS = 2000;
+/** Zoom-hold velocity, decoupled from the drive-speed slider (that's for
+ * fine pan/tilt jogging) — fast and purposeful, per design. Zoom taps keep
+ * using the slider-scaled velocity below (their existing fine nudge). */
+const ZOOM_HOLD_VELOCITY = 0.8;
 
 const pad3 = (n: number) => String(((Math.round(n) % 360) + 360) % 360).padStart(3, '0');
 const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e))).padStart(2, '0');
@@ -26,10 +34,17 @@ const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e
 interface Props {
   deviceId: string;
   deviceLabel: string;
+  view: RailView;
+  onSelectView: (v: RailView) => void;
+  onOpenTowerMenu: () => void;
+  /** Bumped by the rail's Sensors/Alerts icons to open the panel remotely. */
+  openPanelSignal: { tick: number; focus: 'sensors' | 'alerts' } | null;
 }
 
-export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
-  const { client, session } = usePlatform();
+export default function DashboardConsole({
+  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu, openPanelSignal,
+}: Props) {
+  const { client, session, logout } = usePlatform();
   const [selectedCamId, setSelectedCamId] = useState('01');
   const {
     streams, status, connected, linkError, cameras, alerts, hlsUrls, webrtcUrls,
@@ -38,13 +53,14 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
   const ngrok = session.baseUrl.includes('ngrok');
   // Hub reachability (Platform API can talk to the tower via hub) — not sensor health.
-  const linkColor = connected ? colors.accent : colors.offline;
+  const linkColor = connected ? colors.online : colors.offline;
   const linkLabel = linkStatusLabel(connected, linkError);
 
   const [now, setNow] = useState(() => Date.now());
   const [controlOpen, setControlOpen] = useState(true);
   const [spotlight, setSpotlight] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [panelFocus, setPanelFocus] = useState<'sensors' | 'alerts'>('sensors');
   const [ptzMsg, setPtzMsg] = useState('');
   const [recBusy, setRecBusy] = useState(false);
   // No busy-disable lockout on the pad/zoom anymore — the daemon's supersede
@@ -89,9 +105,20 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     }
   }, [cameras, selectedCamId]);
 
+  // Rail's Sensors/Alerts icons open this panel remotely (see FleetApp).
+  useEffect(() => {
+    if (!openPanelSignal) return;
+    setPanelFocus(openPanelSignal.focus);
+    setPanelOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPanelSignal?.tick]);
+
   const camNum = useCallback((id: string) => parseInt(id, 10) || 1, []);
 
-  const sendMove = useCallback((dir: PanDir | null, zoomDir: number, seconds: number) => {
+  /** seconds omitted = unbounded start (daemon runs it until a "stop"
+   * arrives, or its own 4s safety timeout); a real value = the original
+   * bounded pulse (one self-contained tap, no follow-up stop needed). */
+  const sendMove = useCallback((dir: PanDir | null, zoomDir: number, zoomVelocity: number, seconds?: number) => {
     const cam = camNum(selectedCam?.id ?? '01');
     const p = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
     const t = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
@@ -100,8 +127,8 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
       mode: 'continuous',
       pan: p * ptzVelocity,
       tilt: t * ptzVelocity,
-      zoom: zoomDir * ptzVelocity,
-      seconds,
+      zoom: zoomDir * zoomVelocity,
+      ...(seconds !== undefined ? { seconds } : {}),
     });
   }, [client, deviceId, selectedCam, camNum, ptzVelocity]);
 
@@ -123,9 +150,10 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     jogDir.current = dir;
     // Fire immediately on press so the camera reacts without waiting for the
     // hold threshold or pointer-up — the pad's own pressed/active visual
-    // (set by PtzPad itself on pointerdown) is the immediate feedback; we
-    // don't gate anything on this pulse's response.
-    void sendMove(dir, 0, PTZ_PULSE_SEC)
+    // (set by PtzPad itself on pointerdown) is the immediate feedback. This
+    // tap pulse is unchanged: a small, self-contained bounded move — untouched
+    // regardless of whether the press turns into a hold.
+    void sendMove(dir, 0, ptzVelocity, PTZ_PULSE_SEC)
       .then(() => setPtzMsg(`ptz ${dir}`))
       .catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
     jogTimer.current = window.setTimeout(() => {
@@ -133,11 +161,16 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
       jogging.current = true;
       bumpLiveSync();
       setPtzMsg('jog…');
+      // True continuous hold: exactly one unbounded start (no repeating
+      // pulses — that was the stutter). A keepalive every PTZ_KEEPALIVE_MS
+      // refreshes the daemon's 4s safety timeout for as long as this is
+      // held; the actual stop is sent from panEnd/stopJog on release.
+      void sendMove(dir, 0, ptzVelocity).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
       jogInterval.current = window.setInterval(() => {
-        void sendMove(dir, 0, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
-      }, PTZ_JOG_MS);
+        void ptzKeepalive(session, deviceId, camNum(selectedCam?.id ?? '01')).catch(() => { /* best-effort */ });
+      }, PTZ_KEEPALIVE_MS);
     }, PTZ_HOLD_MS);
-  }, [stopJog, sendMove, bumpLiveSync]);
+  }, [stopJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum]);
 
   const panEnd = useCallback(() => {
     // Tap already sent a pulse on panStart; only clear hold-to-jog if still pending.
@@ -161,16 +194,19 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     zoomJogDir.current = null;
   }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
 
-  /** Zoom+/Zoom- are now hold controls, mirroring the pan pad exactly: an
-   * immediate short pulse on press (so a quick tap under PTZ_HOLD_MS still
-   * reads as a small discrete nudge), and if held past that threshold, a
-   * repeating pulse every PTZ_JOG_MS until release. */
+  /** Zoom+/Zoom- are hold controls: an immediate tap pulse on press (the
+   * existing small, slider-scaled nudge — unchanged), and if held past
+   * PTZ_HOLD_MS, exactly ONE unbounded continuous-move start at a fixed,
+   * fast velocity (decoupled from the drive-speed slider — that's for fine
+   * pan/tilt jogging, not zoom holds), kept alive every PTZ_KEEPALIVE_MS
+   * until release sends the actual stop (zoomEnd/stopZoomJog). No repeating
+   * pulses — that was the stutter this fixes. */
   const zoomStart = useCallback((dir: 1 | -1) => {
     stopZoomJog();
     bumpLiveSync();
     setPtzMsg(dir > 0 ? 'zoom in…' : 'zoom out…');
     zoomJogDir.current = dir;
-    void sendMove(null, dir, PTZ_PULSE_SEC)
+    void sendMove(null, dir, ptzVelocity, PTZ_PULSE_SEC)
       .then(() => setPtzMsg(dir > 0 ? 'zoom in' : 'zoom out'))
       .catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
     zoomJogTimer.current = window.setTimeout(() => {
@@ -178,11 +214,12 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
       zoomJogging.current = true;
       bumpLiveSync();
       setPtzMsg('zoom…');
+      void sendMove(null, dir, ZOOM_HOLD_VELOCITY).catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
       zoomJogInterval.current = window.setInterval(() => {
-        void sendMove(null, dir, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
-      }, PTZ_JOG_MS);
+        void ptzKeepalive(session, deviceId, camNum(selectedCam?.id ?? '01')).catch(() => { /* best-effort */ });
+      }, PTZ_KEEPALIVE_MS);
     }, PTZ_HOLD_MS);
-  }, [stopZoomJog, sendMove, bumpLiveSync]);
+  }, [stopZoomJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum]);
 
   const zoomEnd = useCallback(() => {
     if (zoomJogTimer.current !== undefined) {
@@ -262,26 +299,54 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
   useEffect(() => () => { stopJog(); stopZoomJog(); }, [stopJog, stopZoomJog]);
 
+  // Continuous holds are now unbounded on the daemon side (no per-pulse
+  // auto-stop) — if the window loses focus mid-hold (alt-tab, tab switch)
+  // no pointerup ever fires, so stop explicitly. The daemon's own 4s safety
+  // timeout is the last-resort backstop (e.g. the tab/process dying outright).
+  useEffect(() => {
+    const onBlur = () => { stopJog(); stopZoomJog(); };
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  }, [stopJog, stopZoomJog]);
+
   const utc = formatClockUTC1(now);
 
   return (
     <div className="app">
       <header className="topbar">
-        <div className="topbar-brand-group" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontFamily: font.display, fontWeight: 700, fontSize: 24, letterSpacing: '.24em', color: colors.textBright }}>SENTINEL</span>
-          <span style={{ fontFamily: font.display, fontWeight: 500, fontSize: 14, letterSpacing: '.32em', color: colors.textFaint }}>LIVE</span>
-          <span className="device-pill" title={linkLabel}>
-            <span className="pill-hd" style={{ background: linkColor, color: linkColor }} />
-            {deviceLabel}
-          </span>
+        <div className="topbar-brand-group">
+          <span className="wordmark">SENTINEL</span>
+          <span className="wordmark-sub">{session.customerId}</span>
         </div>
-        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-          <div style={{ fontFamily: font.mono, fontSize: 19, color: colors.textBright, letterSpacing: '.06em' }}>{utc}</div>
-          <div style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: '.16em', color: colors.textFaint }}>UTC+1 · PLATFORM API</div>
+
+        <button type="button" className="tower-pill" onClick={onOpenTowerMenu} title={linkLabel}>
+          <span className={`tower-pill-dot${connected ? ' live' : ''}`} style={{ background: linkColor, color: linkColor }} />
+          <span className="tower-pill-label">{deviceLabel}</span>
+          <span className="tower-pill-caret">▾</span>
+        </button>
+
+        <nav className="seg-tabs" aria-label="Main sections">
+          <button type="button" className={view === 'live' ? 'active' : ''} onClick={() => onSelectView('live')}>Live wall</button>
+          <button type="button" className={view === 'recordings' ? 'active' : ''} onClick={() => onSelectView('recordings')}>Recordings</button>
+        </nav>
+
+        <div className="topbar-end-group">
+          <div className="topbar-clock">
+            <div className="topbar-clock-time">{utc}</div>
+            <div className="topbar-clock-sub">UTC+1 · PLATFORM API</div>
+          </div>
+          <div className="topbar-divider" />
+          <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
         </div>
       </header>
 
-      <SensorBar sensors={sensors} deviceName={deviceLabel} connected={connected} linkError={linkError} onOpenDetail={() => setPanelOpen(true)} />
+      <SensorBar
+        sensors={sensors}
+        deviceName={deviceLabel}
+        connected={connected}
+        linkError={linkError}
+        onOpenDetail={() => { setPanelFocus('sensors'); setPanelOpen(true); }}
+      />
 
       <main className={`console${controlOpen ? '' : ' collapsed'}`}>
         <button className="panel-toggle" onClick={() => setControlOpen((v) => !v)} aria-expanded={controlOpen}>
@@ -314,69 +379,66 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
         {selectedCam && (
           <aside className="control">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 12, paddingRight: 34, borderBottom: `1px solid ${colors.line}` }}>
+            <div className="control-head">
               <div>
-                <div style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: '.24em', color: colors.textFaint }}>CAMERA UNDER CONTROL</div>
-                <div style={{ fontFamily: font.display, fontWeight: 700, fontSize: 20, letterSpacing: '.1em', color: ACCENT, marginTop: 3 }}>{selectedCam.label}</div>
+                <div className="control-cap">CAMERA UNDER CONTROL</div>
+                <div className="control-title">{selectedCam.label}</div>
               </div>
-              <div style={{ fontFamily: font.mono, fontSize: 11, color: colors.text, letterSpacing: '.1em' }}>CAM {selectedCam.id}</div>
+              <button
+                type="button"
+                className="control-expand"
+                onClick={() => setSpotlight((v) => !v)}
+                aria-pressed={spotlight}
+                title={spotlight ? 'Exit fullscreen' : 'Fullscreen this feed'}
+                aria-label={spotlight ? 'Exit fullscreen' : 'Fullscreen this feed'}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                </svg>
+              </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <Metric k="AZIMUTH" v={selectedCam.ptzLive ? `${pad3(selectedCam.az)}°` : '—'} />
-              <Metric k="ELEVATION" v={selectedCam.ptzLive ? `${elFmt(selectedCam.el)}°` : '—'} />
-              <Metric k="ZOOM" v={selectedCam.ptzLive ? formatZoom(selectedCam.zoom) : '—'} />
-              <Metric k="STREAM" v={selectedCam.status === 'ONLINE' ? 'LIVE' : selectedCam.status} />
+
+            <div className="readout-grid">
+              <Readout k="AZIMUTH" v={selectedCam.ptzLive ? `${pad3(selectedCam.az)}°` : '—'} />
+              <Readout k="ELEVATION" v={selectedCam.ptzLive ? `${elFmt(selectedCam.el)}°` : '—'} />
+              <Readout k="ZOOM" v={selectedCam.ptzLive ? formatZoom(selectedCam.zoom) : '—'} />
+              <Readout k="STREAM" v={selectedCam.status === 'ONLINE' ? 'LIVE' : selectedCam.status} accent={selectedCam.status === 'ONLINE'} />
             </div>
+
             <button
-              className={`rec-btn${recording?.enabled ? ' rec-btn--on' : ''}`}
+              type="button"
+              className={`rec-row${recording?.enabled ? ' armed' : ''}`}
               disabled={recBusy || !connected}
               title={recording?.enabled ? 'Stop continuous recording' : 'Start continuous recording'}
               onClick={() => void toggleRecording()}
             >
-              <span
-                className={recording?.enabled ? 'rec-dot' : undefined}
-                style={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: '50%',
-                  background: recording?.enabled ? colors.offline : colors.textFaint,
-                }}
-              />
-              {recBusy
-                ? 'RECORDING…'
-                : recording?.enabled
-                  ? 'RECORDING · ON'
-                  : 'RECORDING · OFF'}
+              <span className="rec-row-left">
+                <span className="rec-row-dot" />
+                Recording
+              </span>
+              <span className="rec-row-state">
+                {recBusy ? '…' : recording?.enabled ? 'ARMED' : 'OFF'}
+              </span>
             </button>
-            <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textFaint }}>{ptzMsg}</div>
+
+            <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textCaption }}>{ptzMsg}</div>
             <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <PtzPad accent={ACCENT} onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
+              <PtzPad accent={ACCENT} size="190px" onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
             </div>
             <button
               type="button"
+              className="set-home-btn"
               onClick={setHome}
               disabled={settingHome}
               title="Save current position as Home"
-              style={{
-                alignSelf: 'center',
-                background: 'none',
-                border: 'none',
-                cursor: settingHome ? 'not-allowed' : 'pointer',
-                color: colors.textFaint,
-                fontFamily: font.mono,
-                fontSize: 9,
-                letterSpacing: '.08em',
-                padding: '2px 8px 6px',
-                opacity: settingHome ? 0.4 : 0.75,
-              }}
             >
               ⚑ SET HOME
             </button>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="zoom-grid">
               <button
                 type="button"
-                className={`ctl-btn${zoomActive === -1 ? ' active' : ''}`}
+                className={`zoom-btn${zoomActive === -1 ? ' active' : ''}`}
                 style={{ '--accent': ACCENT } as CSSProperties}
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -388,11 +450,11 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
                 onPointerCancel={() => { setZoomActive(null); zoomEnd(); }}
                 onLostPointerCapture={() => { setZoomActive(null); zoomEnd(); }}
               >
-                − ZOOM
+                ZOOM −
               </button>
               <button
                 type="button"
-                className={`ctl-btn${zoomActive === 1 ? ' active' : ''}`}
+                className={`zoom-btn${zoomActive === 1 ? ' active' : ''}`}
                 style={{ '--accent': ACCENT } as CSSProperties}
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -411,16 +473,24 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         )}
       </main>
 
-      <SensorPanel open={panelOpen} deviceName={deviceLabel} sensors={sensors} alerts={alerts} connected={connected} onClose={() => setPanelOpen(false)} />
+      <SensorPanel
+        open={panelOpen}
+        deviceName={deviceLabel}
+        sensors={sensors}
+        alerts={alerts}
+        connected={connected}
+        initialFocus={panelFocus}
+        onClose={() => setPanelOpen(false)}
+      />
     </div>
   );
 }
 
-function Metric({ k, v }: { k: string; v: string }) {
+function Readout({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
   return (
-    <div style={{ background: colors.bgWell, border: `1px solid ${colors.line}`, borderRadius: 6, padding: '8px 10px' }}>
-      <div style={{ fontFamily: font.mono, fontSize: 9, letterSpacing: '.18em', color: colors.textFaint }}>{k}</div>
-      <div style={{ fontFamily: font.mono, fontSize: 17, color: colors.textBright, marginTop: 2 }}>{v}</div>
+    <div className="readout">
+      <div className="readout-k">{k}</div>
+      <div className="readout-v" style={accent ? { color: colors.online } : undefined}>{v}</div>
     </div>
   );
 }
