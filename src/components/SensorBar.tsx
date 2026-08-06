@@ -1,4 +1,4 @@
-import type { Sensor } from '../types';
+import type { Sensor, SensorLevel } from '../types';
 import { colors } from '../tokens';
 import { levelColor } from '../util';
 
@@ -8,6 +8,10 @@ interface Props {
   connected: boolean;
   linkError?: string;
   onOpenDetail: () => void;
+}
+
+function haloColor(level: SensorLevel): string {
+  return level === 'crit' ? colors.haloAlert : level === 'warn' ? colors.haloWarn : colors.haloOk;
 }
 
 /**
@@ -21,7 +25,7 @@ export default function SensorBar({ sensors, deviceName, connected, linkError, o
   return (
     <div className="sensorbar">
       <div className="sb-label">
-        <span className="k">TOWER SENSORS</span>
+        <span className="k">TOWER</span>
         <span className="v">{deviceName}</span>
       </div>
 
@@ -29,10 +33,10 @@ export default function SensorBar({ sensors, deviceName, connected, linkError, o
         const c = levelColor(s.level);
         return (
           <div key={s.key} className="chip">
-            <span className="cdot" style={{ background: c, color: c }} />
+            <span className="cdot" style={{ background: c, boxShadow: `0 0 0 3px ${haloColor(s.level)}` }} />
             <div className="meta">
               <span className="ck">{s.short}</span>
-              <span className="cv" style={{ color: s.level === 'ok' ? colors.textBright : c }}>
+              <span className="cv" style={{ color: s.level === 'ok' ? colors.textStrong : c }}>
                 {s.kind === 'numeric' ? (
                   <>{s.value}{s.unit && <u>{s.unit}</u>}</>
                 ) : s.kind === 'state' ? (
@@ -45,16 +49,15 @@ export default function SensorBar({ sensors, deviceName, connected, linkError, o
       })}
 
       <div className="sb-right">
-        <span className="sb-live" title={connected ? 'Platform API can reach this tower via the hub' : (linkError || 'Tower link lost — check hub proxy, VPN, or tower gateway')}>
-          <span className="sb-live-dot" style={{ background: connected ? colors.accent : colors.offline, boxShadow: `0 0 8px ${connected ? colors.accent : colors.offline}` }} />
-          {connected ? 'LINK LIVE' : 'LINK OFFLINE'}
+        <span
+          className={`sb-live${connected ? ' live' : ' down'}`}
+          title={connected ? 'Platform API can reach this tower via the hub' : (linkError || 'Tower link lost — check hub proxy, VPN, or tower gateway')}
+        >
+          <span className="sb-live-dot" />
+          {connected ? 'Link live' : 'Link offline'}
         </span>
         <button className="sb-more" onClick={onOpenDetail} aria-label="Open sensor detail panel" title="Sensor details">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="14" y1="4" x2="14" y2="20" />
-          </svg>
-          DETAILS
+          Details
         </button>
       </div>
     </div>

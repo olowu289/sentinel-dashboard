@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { postWhepOffer, deleteWhepSession } from '../webrtcApi';
+import type { TileStats } from '../liveStats';
 
 interface Props {
   /** Platform API WHEP create-session URL (POST an SDP offer here). */
@@ -13,6 +14,8 @@ interface Props {
   onFatalError: (err?: unknown) => void;
   /** Called once when this session actually reaches connectionState 'connected'. */
   onConnected?: () => void;
+  /** Called on every stats poll with fps/loss/drift for the tile footer. */
+  onStats?: (s: TileStats) => void;
 }
 
 /** Non-trickle ICE: wait this long for gathering to finish before sending whatever we have. */
@@ -146,7 +149,7 @@ async function negotiateWhepSession(
  * one offer — no PATCH/trickle round trip (see webrtcApi.ts). Falls back to HLS (via
  * the LiveVideo wrapper) on any unrecoverable failure or connect timeout.
  */
-export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, streamReady = true, onFatalError, onConnected }: Props) {
+export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, streamReady = true, onFatalError, onConnected, onStats }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [note, setNote] = useState('connecting…');
   const [playing, setPlaying] = useState(false);
@@ -202,6 +205,9 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
     let baselineFreezesSec: number | null = null;
     let prevDriftSec: number | null = null;
     let driftGrowthStreak = 0;
+    /** For the tile-footer fps estimate: framesDecoded delta / time delta. */
+    let prevFramesDecoded: number | null = null;
+    let prevFramesAtMs: number | null = null;
     let replacementInFlight = false;
     /** Set while a background replacement is mid-flight; lets the effect's own
      * unmount cleanup abandon it too (closes its pc, deletes its session). */
@@ -327,6 +333,8 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
         baselineFreezesSec = null;
         prevDriftSec = null;
         driftGrowthStreak = 0;
+        prevFramesDecoded = null;
+        prevFramesAtMs = null;
         lastResyncAtRef.current = Date.now();
 
         oldPc?.close();
@@ -379,6 +387,15 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
         allMetrics[whepUrl] = bucket;
         window.__sentinelWebrtcMetrics = allMetrics;
 
+        let fps: number | null = null;
+        const nowMs = sample.t;
+        if (prevFramesDecoded != null && prevFramesAtMs != null) {
+          const dtSec = (nowMs - prevFramesAtMs) / 1000;
+          if (dtSec > 0) fps = Math.max(0, (sample.framesDecoded - prevFramesDecoded) / dtSec);
+        }
+        prevFramesDecoded = sample.framesDecoded;
+        prevFramesAtMs = nowMs;
+
         // Drift watchdog: freezes plus current jitter buffer depth as a rough estimate
         // of how far behind live we've drifted. A big number here is the "smooth but
         // delayed" symptom accumulating quietly — resync fresh rather than let it grow
@@ -388,11 +405,13 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
         // most once a minute (counted from the last successful swap), triggers a
         // background replacement attempt.
         let driftText = '';
+        let driftSecForStats: number | null = null;
         if (connectedAtMs != null) {
           if (baselineFreezesSec === null) baselineFreezesSec = sample.totalFreezesDurationSec;
           const driftSec = (sample.totalFreezesDurationSec - baselineFreezesSec)
             + (jitterBufferMs != null ? jitterBufferMs / 1000 : 0);
           driftText = ` · drift ~${driftSec.toFixed(1)}s`;
+          driftSecForStats = driftSec;
 
           const isGrowing = prevDriftSec != null && driftSec > prevDriftSec;
           driftGrowthStreak = isGrowing ? driftGrowthStreak + 1 : 0;
@@ -417,6 +436,7 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
           + ` · pauses ${sample.pauseCount} (${sample.totalPausesDurationSec.toFixed(1)}s)`
           + driftText,
         );
+        onStats?.({ fps, lossPct, driftSec: driftSecForStats });
       } catch { /* ignore — try again next tick */ }
     };
 

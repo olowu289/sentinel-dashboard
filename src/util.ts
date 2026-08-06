@@ -88,9 +88,9 @@ export function health(sensors: Sensor[]): { level: SensorLevel; label: string }
 }
 
 export function levelColor(level: SensorLevel): string {
-  return level === 'crit' ? colors.offline : level === 'warn' ? colors.standby : colors.accent;
+  return level === 'crit' ? colors.offline : level === 'warn' ? colors.standby : colors.online;
 }
 
 export function alertColor(level: AlertLevel): string {
-  return level === 'bad' ? colors.offline : level === 'warn' ? colors.standby : colors.accent;
+  return level === 'bad' ? colors.offline : level === 'warn' ? colors.standby : colors.online;
 }

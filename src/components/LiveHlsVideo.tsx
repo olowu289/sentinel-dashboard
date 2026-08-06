@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
+import type { TileStats } from '../liveStats';
 
 interface Props {
   /** Platform API HLS playlist URL (no api_key — headers preferred). */
@@ -11,6 +12,9 @@ interface Props {
   ngrok?: boolean;
   /** Increment to snap playback to the live HLS edge (e.g. on PTZ). */
   syncLiveTick?: number;
+  /** Called on every sample with fps/loss/drift for the tile footer. HLS has
+   * no real per-packet loss metric, so lossPct is always null here. */
+  onStats?: (s: TileStats) => void;
 }
 
 export type LiveLatencySample = {
@@ -95,7 +99,7 @@ function snapToLiveEdge(hls: Hls, video: HTMLVideoElement) {
  * NVR-style live HLS: deep buffer, play forward smoothly. PTZ triggers an explicit
  * jump to the true live edge so pan/zoom feedback is visible immediately.
  */
-export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick = 0 }: Props) {
+export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick = 0, onStats }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | undefined>(undefined);
   const snapLiveRef = useRef<(() => void) | null>(null);
@@ -132,6 +136,9 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
     let lastHubUpstreamMs: number | null = null;
     let lowBufferTicks = 0;
     let lastPtzSnapMs = 0;
+    /** For the tile-footer fps estimate: decoded-frame-count delta / time delta. */
+    let prevFrameCount: number | null = null;
+    let prevFrameAtMs: number | null = null;
 
     const allLiveMetrics = window.__sentinelLiveMetrics ?? {};
     allLiveMetrics[hlsUrl] = {
@@ -174,11 +181,32 @@ export default function LiveHlsVideo({ hlsUrl, apiKey, streamReady = true, ngrok
         lastHubUpstreamMs,
       };
       const bucket = window.__sentinelLiveMetrics?.[hlsUrl];
-      if (!bucket) return;
-      bucket.samples.push(sample);
-      if (bucket.samples.length > 120) bucket.samples.shift();
-      bucket.last = sample;
-      bucket.stalls = stallCount;
+      if (bucket) {
+        bucket.samples.push(sample);
+        if (bucket.samples.length > 120) bucket.samples.shift();
+        bucket.last = sample;
+        bucket.stalls = stallCount;
+      }
+
+      // HLS has no real per-packet loss metric (it's segment-based, not RTP),
+      // so lossPct stays null here — reported as "—" in the tile footer rather
+      // than a fabricated number. fps is estimated from the decoded-frame
+      // counter the browser tracks for every <video>, independent of hls.js.
+      let fps: number | null = null;
+      try {
+        const quality = video.getVideoPlaybackQuality?.();
+        if (quality) {
+          const frames = quality.totalVideoFrames;
+          const nowMs = performance.now();
+          if (prevFrameCount != null && prevFrameAtMs != null) {
+            const dtSec = (nowMs - prevFrameAtMs) / 1000;
+            if (dtSec > 0) fps = Math.max(0, (frames - prevFrameCount) / dtSec);
+          }
+          prevFrameCount = frames;
+          prevFrameAtMs = nowMs;
+        }
+      } catch { /* getVideoPlaybackQuality unsupported — fine, fps stays null */ }
+      onStats?.({ fps, lossPct: null, driftSec: lagBehindSync });
     };
 
     let hls: Hls | undefined;

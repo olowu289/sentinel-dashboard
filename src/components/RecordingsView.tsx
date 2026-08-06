@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { colors, font } from '../tokens';
 import { formatClockUTC1, formatDateTimeUTC1, formatBytes } from '../clock';
 import { usePlatform } from '../platformContext';
 import { useRecordings } from '../useRecordings';
 import { formatApiError } from '../util';
 import type { Tower } from '../types';
+import type { RailView } from './Rail';
 
 const PAGE_SIZE = 24;
 
@@ -12,10 +12,15 @@ interface Props {
   towers: Tower[];
   selectedTowerId: string;
   onSelectTower: (id: string) => void;
+  view: RailView;
+  onSelectView: (v: RailView) => void;
+  onOpenTowerMenu: () => void;
 }
 
-export default function RecordingsView({ towers, selectedTowerId, onSelectTower }: Props) {
-  const { session } = usePlatform();
+export default function RecordingsView({
+  towers, selectedTowerId, onSelectTower, view, onSelectView, onOpenTowerMenu,
+}: Props) {
+  const { session, logout } = usePlatform();
   const [camera, setCamera] = useState<number | undefined>(undefined);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [playingLabel, setPlayingLabel] = useState('');
@@ -60,13 +65,29 @@ export default function RecordingsView({ towers, selectedTowerId, onSelectTower 
   return (
     <div className="recordings-view">
       <header className="topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontFamily: font.display, fontWeight: 700, fontSize: 24, letterSpacing: '.24em', color: colors.textBright }}>SENTINEL</span>
-          <span style={{ fontFamily: font.display, fontWeight: 500, fontSize: 14, letterSpacing: '.32em', color: colors.textFaint }}>RECORDINGS</span>
+        <div className="topbar-brand-group">
+          <span className="wordmark">SENTINEL</span>
+          <span className="wordmark-sub">{session.customerId}</span>
         </div>
-        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-          <div style={{ fontFamily: font.mono, fontSize: 19, color: colors.textBright, letterSpacing: '.06em' }}>{clock}</div>
-          <div style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: '.16em', color: colors.textFaint }}>UTC+1 · CLOUD RETENTION {retentionDays}D</div>
+
+        <button type="button" className="tower-pill" onClick={onOpenTowerMenu} title={towerLabel}>
+          <span className="tower-pill-dot" />
+          <span className="tower-pill-label">{towerLabel}</span>
+          <span className="tower-pill-caret">▾</span>
+        </button>
+
+        <nav className="seg-tabs" aria-label="Main sections">
+          <button type="button" className={view === 'live' ? 'active' : ''} onClick={() => onSelectView('live')}>Live wall</button>
+          <button type="button" className={view === 'recordings' ? 'active' : ''} onClick={() => onSelectView('recordings')}>Recordings</button>
+        </nav>
+
+        <div className="topbar-end-group">
+          <div className="topbar-clock">
+            <div className="topbar-clock-time">{clock}</div>
+            <div className="topbar-clock-sub">UTC+1 · CLOUD RETENTION {retentionDays}D</div>
+          </div>
+          <div className="topbar-divider" />
+          <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
         </div>
       </header>
 

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { AlertEvent, Sensor } from '../types';
 import { alertColor, levelColor } from '../util';
 
@@ -7,6 +8,8 @@ interface Props {
   sensors: Sensor[];
   alerts: AlertEvent[];
   connected: boolean;
+  /** Which section to scroll into view when the panel opens. */
+  initialFocus?: 'sensors' | 'alerts';
   onClose: () => void;
 }
 
@@ -72,7 +75,15 @@ function AlertRow({ a }: { a: AlertEvent }) {
   );
 }
 
-export default function SensorPanel({ open, deviceName, sensors, alerts, connected, onClose }: Props) {
+export default function SensorPanel({ open, deviceName, sensors, alerts, connected, initialFocus, onClose }: Props) {
+  const alertsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (open && initialFocus === 'alerts') {
+      alertsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [open, initialFocus]);
+
   return (
     <div className={`mon-root${open ? ' open' : ''}`} aria-hidden={!open}>
       <div className="mon-backdrop" onClick={onClose} />
@@ -95,7 +106,7 @@ export default function SensorPanel({ open, deviceName, sensors, alerts, connect
             {sensors.map((s) => <Card key={s.key} s={s} />)}
           </div>
 
-          <div className="alerts">
+          <div className="alerts" ref={alertsRef}>
             <div className="al-head"><span className="t">LIVE ALERTS</span><span className="al-count">{alerts.length}</span></div>
             <div className="al-list">
               {alerts.length === 0 && <div className="al-empty">No active alerts.</div>}

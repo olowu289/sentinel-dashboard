@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { colors, font } from './tokens';
 import { useFleet } from './useFleet';
 import { usePlatform } from './platformContext';
 import type { Tower } from './types';
@@ -7,16 +6,24 @@ import DashboardConsole from './components/DashboardConsole';
 import RecordingsView from './components/RecordingsView';
 import TowerDrawer from './components/TowerDrawer';
 import TowerMenu from './components/TowerMenu';
+import Rail, { type RailView } from './components/Rail';
 
-type AppView = 'live' | 'recordings';
+function initials(label: string): string {
+  const letters = label.replace(/[^a-zA-Z]/g, '');
+  return (letters.slice(0, 2) || 'S').toUpperCase();
+}
 
 export default function FleetApp() {
-  const { session, logout } = usePlatform();
+  const { session } = usePlatform();
   const { towers: fleetTowers, loading, error } = useFleet();
   const [selectedTowerId, setSelectedTowerId] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [view, setView] = useState<AppView>('live');
+  const [view, setView] = useState<RailView>('live');
   const [now, setNow] = useState(() => Date.now());
+  /** Bumped by the rail's Sensors/Alerts icons to remotely open the sensor
+   * panel (which lives inside DashboardConsole, since that's where the live
+   * sensor/alert data is) even when the operator is on the Recordings view. */
+  const [panelRequest, setPanelRequest] = useState<{ tick: number; focus: 'sensors' | 'alerts' } | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -43,41 +50,53 @@ export default function FleetApp() {
 
   const deviceLabel = selected ? selected.name : session.customerId.toUpperCase();
 
+  const openPanel = (focus: 'sensors' | 'alerts') => {
+    setView('live');
+    setPanelRequest((r) => ({ tick: (r?.tick ?? 0) + 1, focus }));
+  };
+
   return (
     <div className="fleet-shell">
-      <div className="fleet-chrome">
-        <button type="button" className="hamburger" onClick={() => setDrawerOpen(true)} aria-label="Open towers">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-        </button>
-        <span style={{ fontFamily: font.mono, fontSize: 11, color: colors.textFaint, letterSpacing: '.14em' }}>
-          {session.customerId} · {towers.length} tower{towers.length === 1 ? '' : 's'}
-        </span>
-        <nav className="fleet-nav" aria-label="Main sections">
-          <button type="button" className={view === 'live' ? 'active' : ''} onClick={() => setView('live')}>LIVE</button>
-          <button type="button" className={view === 'recordings' ? 'active' : ''} onClick={() => setView('recordings')}>RECORDINGS</button>
-        </nav>
-        <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
+      <Rail
+        view={view}
+        onSelectView={setView}
+        onOpenSensors={() => openPanel('sensors')}
+        onOpenAlerts={() => openPanel('alerts')}
+        initials={initials(deviceLabel)}
+      />
+
+      <div className="fleet-main">
+        {towers.length > 1 && selected && (
+          <TowerMenu towers={towers} selectedTowerId={selected.id} onSelect={setSelectedTowerId} />
+        )}
+
+        {loading && <div className="feed-loading">Loading fleet…</div>}
+        {error && <div className="login-error" style={{ margin: 16 }}>{error}</div>}
+
+        {selected && !loading && view === 'live' && (
+          <DashboardConsole
+            key={selected.id}
+            deviceId={selected.id}
+            deviceLabel={deviceLabel}
+            view={view}
+            onSelectView={setView}
+            onOpenTowerMenu={() => setDrawerOpen(true)}
+            openPanelSignal={panelRequest}
+          />
+        )}
+
+        {selected && !loading && view === 'recordings' && (
+          <RecordingsView
+            key={`rec-${selected.id}`}
+            towers={towers}
+            selectedTowerId={selected.id}
+            onSelectTower={setSelectedTowerId}
+            view={view}
+            onSelectView={setView}
+            onOpenTowerMenu={() => setDrawerOpen(true)}
+          />
+        )}
       </div>
-
-      {towers.length > 1 && selected && (
-        <TowerMenu towers={towers} selectedTowerId={selected.id} onSelect={setSelectedTowerId} />
-      )}
-
-      {loading && <div className="feed-loading">Loading fleet…</div>}
-      {error && <div className="login-error" style={{ margin: 16 }}>{error}</div>}
-
-      {selected && !loading && view === 'live' && (
-        <DashboardConsole key={selected.id} deviceId={selected.id} deviceLabel={deviceLabel} />
-      )}
-
-      {selected && !loading && view === 'recordings' && (
-        <RecordingsView
-          key={`rec-${selected.id}`}
-          towers={towers}
-          selectedTowerId={selected.id}
-          onSelectTower={setSelectedTowerId}
-        />
-      )}
 
       <TowerDrawer
         open={drawerOpen}

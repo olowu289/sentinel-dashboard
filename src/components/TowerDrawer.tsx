@@ -17,7 +17,7 @@ interface Props {
 const STATUS_OPTS: Array<TowerStatus | 'ALL'> = ['ALL', 'ONLINE', 'STANDBY', 'OFFLINE'];
 
 const statusColor = (s: TowerStatus) =>
-  s === 'ONLINE' ? colors.accent : s === 'STANDBY' ? colors.standby : colors.offline;
+  s === 'ONLINE' ? colors.online : s === 'STANDBY' ? colors.standby : colors.offline;
 
 function fmtAgo(from: number, now: number): string {
   const s = Math.max(0, Math.floor((now - from) / 1000));

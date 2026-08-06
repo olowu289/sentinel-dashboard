@@ -9,7 +9,7 @@ interface Props {
 }
 
 const statusColor = (s: TowerStatus) =>
-  s === 'ONLINE' ? colors.accent : s === 'STANDBY' ? colors.standby : colors.offline;
+  s === 'ONLINE' ? colors.online : s === 'STANDBY' ? colors.standby : colors.offline;
 
 /**
  * Compact quick-switcher shown under the topbar tower pill. Lists every tower

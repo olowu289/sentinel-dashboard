@@ -37,7 +37,10 @@ export default function PtzSpeedSlider({ value, onChange, accent }: Props) {
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label="PTZ drive speed"
         title="Slower for fine aim, faster for sweeping"
-        style={{ ['--accent' as string]: accent }}
+        style={{
+          ['--accent' as string]: accent,
+          background: `linear-gradient(90deg, oklch(0.62 0.17 292), oklch(0.78 0.13 275) ${value}%, #1a1e25 ${value}%)`,
+        }}
       />
       <div style={{ fontFamily: font.mono, fontSize: 9, letterSpacing: '.06em', color: colors.textFaint }}>
         Slower = finer moves

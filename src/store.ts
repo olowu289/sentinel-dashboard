@@ -21,5 +21,5 @@ export function towerHealth(t: Tower): { level: SensorLevel; label: string } {
 }
 
 export function levelColor(level: SensorLevel): string {
-  return level === 'crit' ? colors.offline : level === 'warn' ? colors.standby : colors.accent;
+  return level === 'crit' ? colors.offline : level === 'warn' ? colors.standby : colors.online;
 }

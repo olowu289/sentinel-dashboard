@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import LiveHlsVideo from './LiveHlsVideo';
 import LiveWebrtcVideo from './LiveWebrtcVideo';
 import { postWhepOffer, deleteWhepSession } from '../webrtcApi';
+import type { TileStats } from '../liveStats';
 
 interface Props {
   /** Platform API HLS playlist URL — compatibility fallback. */
@@ -13,6 +14,8 @@ interface Props {
   ngrok?: boolean;
   /** Increment to snap HLS playback to the live edge (e.g. on PTZ). Ignored in webrtc mode. */
   syncLiveTick?: number;
+  /** Called on every stats sample from whichever transport is currently playing. */
+  onStats?: (s: TileStats) => void;
 }
 
 type Mode = 'webrtc' | 'hls' | 'none';
@@ -160,7 +163,7 @@ async function probeWebrtc(
  * PROBE_INTERVAL_MS, and only a confirmed-working probe swaps the tile back.
  * The previously-playing HLS stream is never torn down just to test WebRTC.
  */
-export default function LiveVideo({ hlsUrl, whepUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick }: Props) {
+export default function LiveVideo({ hlsUrl, whepUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick, onStats }: Props) {
   const [mode, setMode] = useState<Mode>(() => initialMode(whepUrl, hlsUrl));
   const [webrtcKey, setWebrtcKey] = useState(0);
   const attemptsRef = useRef(0);
@@ -231,6 +234,7 @@ export default function LiveVideo({ hlsUrl, whepUrl, apiKey, streamReady = true,
           attemptsRef.current = 0;
           console.info('[live] webrtc connected');
         }}
+        onStats={onStats}
       />
     );
   }
@@ -243,6 +247,7 @@ export default function LiveVideo({ hlsUrl, whepUrl, apiKey, streamReady = true,
         streamReady={streamReady}
         ngrok={ngrok}
         syncLiveTick={syncLiveTick}
+        onStats={onStats}
       />
     );
   }
