@@ -200,8 +200,9 @@ body {
   color: #9aa6b0; font-size: 15px; cursor: pointer;
   transition: background .12s, border-color .12s, color .12s, transform .08s;
 }
-.pad-btn:hover { background: #222c34; border-color: #4a5762; color: #eef3f7; }
+.pad-btn:hover:not(:disabled) { background: #222c34; border-color: #4a5762; color: #eef3f7; }
 .pad-btn.active { background: #24303a; border-color: var(--accent, #5eead4); color: #eef3f7; box-shadow: 0 0 10px rgba(94, 234, 212, .25); }
+.pad-btn:disabled { opacity: .35; color: #5a656f; border-color: #1a2228; cursor: not-allowed; }
 .pad-up    { top: 9px;    left: 50%; transform: translateX(-50%); width: 48px; height: 40px; }
 .pad-down  { bottom: 9px; left: 50%; transform: translateX(-50%); width: 48px; height: 40px; }
 .pad-left  { left: 9px;   top: 50%;  transform: translateY(-50%); width: 40px; height: 48px; }
@@ -232,8 +233,9 @@ body {
   box-shadow: 0 0 22px -4px var(--accent), 0 0 0 1px var(--accent);
   transition: transform .1s, filter .12s;
 }
-.pad-center:hover { filter: brightness(1.12); }
-.pad-center:active { transform: translate(-50%, -50%) scale(.92); }
+.pad-center:hover:not(:disabled) { filter: brightness(1.12); }
+.pad-center:active:not(:disabled) { transform: translate(-50%, -50%) scale(.92); }
+.pad-center:disabled { opacity: .4; filter: grayscale(.6); cursor: not-allowed; }
 
 /* ---- tower sensor context bar ---- */
 .sensorbar {

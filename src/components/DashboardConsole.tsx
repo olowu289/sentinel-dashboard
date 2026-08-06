@@ -6,6 +6,7 @@ import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { useTowerLive } from '../useTowerLive';
 import { formatZoom } from '../ptzMetrics';
+import { ptzSetHome } from '../ptzApi';
 import TowerFeed from './TowerFeed';
 import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
@@ -46,6 +47,13 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [ptzMsg, setPtzMsg] = useState('');
   const [recBusy, setRecBusy] = useState(false);
+  /** True while a discrete PTZ command (tap, zoom, home, set-home) is in
+   * flight — disables the pad/zoom so rapid taps don't look unresponsive.
+   * Not used for the hold-to-jog interval itself (that has its own
+   * pressed/active visual and shouldn't flicker disabled between pulses). */
+  const [ptzBusy, setPtzBusy] = useState(false);
+  const [settingHome, setSettingHome] = useState(false);
+  const ptzBusyTimer = useRef<number | undefined>(undefined);
   const [ptzSpeedPct, setPtzSpeedPct] = useState(() => {
     try {
       const saved = Number(localStorage.getItem(PTZ_SPEED_KEY));
@@ -75,6 +83,18 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   }, [cameras, selectedCamId]);
 
   const camNum = useCallback((id: string) => parseInt(id, 10) || 1, []);
+
+  /** Disables the pad/zoom while a discrete command is in flight; always
+   * re-enables within 3s even if the response never comes back. */
+  const beginPtzBusy = useCallback(() => {
+    setPtzBusy(true);
+    if (ptzBusyTimer.current) window.clearTimeout(ptzBusyTimer.current);
+    ptzBusyTimer.current = window.setTimeout(() => setPtzBusy(false), 3000);
+  }, []);
+  const endPtzBusy = useCallback(() => {
+    if (ptzBusyTimer.current) { window.clearTimeout(ptzBusyTimer.current); ptzBusyTimer.current = undefined; }
+    setPtzBusy(false);
+  }, []);
 
   const sendMove = useCallback((dir: PanDir | null, zoomDir: number, seconds: number) => {
     const cam = camNum(selectedCam?.id ?? '01');
@@ -107,8 +127,15 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     setPtzMsg(`ptz ${dir}…`);
     jogDir.current = dir;
     // Fire immediately on press so Network shows a move and the camera reacts
-    // without waiting for hold threshold or pointer-up.
-    void sendMove(dir, 0, PTZ_PULSE_SEC).then(() => setPtzMsg(`ptz ${dir}`)).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
+    // without waiting for hold threshold or pointer-up. Busy-disable covers
+    // only this initial tap pulse — once a hold becomes a jog (below), the
+    // pad's own pressed/active state takes over and busy no longer applies,
+    // so repeated jog pulses don't flicker the buttons disabled/enabled.
+    beginPtzBusy();
+    void sendMove(dir, 0, PTZ_PULSE_SEC)
+      .then(() => setPtzMsg(`ptz ${dir}`))
+      .catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`))
+      .finally(() => endPtzBusy());
     jogTimer.current = window.setTimeout(() => {
       jogTimer.current = undefined;
       jogging.current = true;
@@ -118,7 +145,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         void sendMove(dir, 0, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
       }, PTZ_JOG_MS);
     }, PTZ_HOLD_MS);
-  }, [stopJog, sendMove, bumpLiveSync]);
+  }, [stopJog, sendMove, bumpLiveSync, beginPtzBusy, endPtzBusy]);
 
   const panEnd = useCallback(() => {
     // Tap already sent a pulse on panStart; only clear hold-to-jog if still pending.
@@ -134,8 +161,12 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const zoomBy = useCallback((d: number) => {
     bumpLiveSync();
     const dir = d > 0 ? 1 : -1;
-    void sendMove(null, dir, PTZ_PULSE_SEC).then(() => setPtzMsg('zoom ok')).catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
-  }, [sendMove, bumpLiveSync]);
+    beginPtzBusy();
+    void sendMove(null, dir, PTZ_PULSE_SEC)
+      .then(() => setPtzMsg('zoom ok'))
+      .catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`))
+      .finally(() => endPtzBusy());
+  }, [sendMove, bumpLiveSync, beginPtzBusy, endPtzBusy]);
 
   const captureSnapshot = useCallback(async (camId: string) => {
     try {
@@ -183,10 +214,23 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
   const recenter = useCallback(() => {
     bumpLiveSync();
+    beginPtzBusy();
     void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01'), home: true })
       .then(() => setPtzMsg('home ok'))
-      .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`));
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
+      .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`))
+      .finally(() => endPtzBusy());
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, beginPtzBusy, endPtzBusy]);
+
+  const setHome = useCallback(() => {
+    if (settingHome || ptzBusy) return;
+    if (!window.confirm('Save current position as Home?')) return;
+    setSettingHome(true);
+    beginPtzBusy();
+    void ptzSetHome(session, deviceId, camNum(selectedCam?.id ?? '01'))
+      .then(() => setPtzMsg('home saved'))
+      .catch((e: unknown) => setPtzMsg(`set home failed: ${formatApiError(e)}`))
+      .finally(() => { setSettingHome(false); endPtzBusy(); });
+  }, [session, deviceId, selectedCam, camNum, settingHome, ptzBusy, beginPtzBusy, endPtzBusy]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -284,11 +328,31 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
             <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textFaint }}>{ptzMsg}</div>
             <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <PtzPad accent={ACCENT} onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
+              <PtzPad accent={ACCENT} onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} disabled={ptzBusy} />
             </div>
+            <button
+              type="button"
+              onClick={setHome}
+              disabled={ptzBusy || settingHome}
+              title="Save current position as Home"
+              style={{
+                alignSelf: 'center',
+                background: 'none',
+                border: 'none',
+                cursor: ptzBusy || settingHome ? 'not-allowed' : 'pointer',
+                color: colors.textFaint,
+                fontFamily: font.mono,
+                fontSize: 9,
+                letterSpacing: '.08em',
+                padding: '2px 8px 6px',
+                opacity: ptzBusy || settingHome ? 0.4 : 0.75,
+              }}
+            >
+              ⚑ SET HOME
+            </button>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="ctl-btn" onClick={() => zoomBy(-ZOOM_STEP)}>− ZOOM</button>
-              <button className="ctl-btn" onClick={() => zoomBy(ZOOM_STEP)}>ZOOM +</button>
+              <button className="ctl-btn" disabled={ptzBusy} onClick={() => zoomBy(-ZOOM_STEP)}>− ZOOM</button>
+              <button className="ctl-btn" disabled={ptzBusy} onClick={() => zoomBy(ZOOM_STEP)}>ZOOM +</button>
             </div>
           </aside>
         )}

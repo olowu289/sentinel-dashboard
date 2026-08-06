@@ -12,13 +12,15 @@ interface Props {
   /** Pointer up / leave — end jog or complete tap */
   onPanEnd: () => void;
   onRecenter: () => void;
+  /** True while a PTZ command for this camera is in flight — pad + home go inert. */
+  disabled?: boolean;
 }
 
 /**
  * Directional pad. Tap = one nudge; press-and-hold = continuous jog at the
  * speed set by the slider (parent repeats short ONVIF pulses).
  */
-export default function PtzPad({ accent, size = '176px', onPanStart, onPanEnd, onRecenter }: Props) {
+export default function PtzPad({ accent, size = '176px', onPanStart, onPanEnd, onRecenter, disabled = false }: Props) {
   const accentVar = { '--accent': accent } as CSSProperties;
   const [active, setActive] = useState<PanDir | null>(null);
 
@@ -42,6 +44,7 @@ export default function PtzPad({ accent, size = '176px', onPanStart, onPanEnd, o
       setActive(null);
       onPanEnd();
     },
+    disabled,
     className: `pad-btn pad-${dir}${active === dir ? ' active' : ''}`,
     'aria-pressed': active === dir,
   });
@@ -60,6 +63,7 @@ export default function PtzPad({ accent, size = '176px', onPanStart, onPanEnd, o
         type="button"
         className="pad-center"
         onClick={onRecenter}
+        disabled={disabled}
         title="Recenter camera"
         aria-label="Recenter camera"
         style={{ ...accentVar, fontFamily: font.display }}
