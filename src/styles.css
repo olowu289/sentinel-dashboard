@@ -171,6 +171,13 @@ body {
 }
 .ctl-btn:hover:not(:disabled) { border-color: #ffffff; color: #ffffff; }
 .ctl-btn:active:not(:disabled) { transform: scale(.97); }
+/* Explicit pressed state for pointer-capture-driven hold controls (zoom) —
+   native :active alone isn't reliable once a pointer is captured. */
+.ctl-btn.active {
+  border-color: var(--accent, #5eead4); color: #eef3f7;
+  background: linear-gradient(180deg, #1b2731, #12191f);
+  box-shadow: 0 0 10px rgba(94, 234, 212, .2);
+}
 .ctl-btn:disabled {
   opacity: .4;
   color: #5a656f;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { colors, font } from '../tokens';
 import { formatClockUTC1 } from '../clock';
 import { formatApiError, linkStatusLabel } from '../util';
@@ -14,7 +15,6 @@ import SensorBar from './SensorBar';
 import SensorPanel from './SensorPanel';
 
 const ACCENT = colors.accent;
-const ZOOM_STEP = 0.3;
 const PTZ_PULSE_SEC = 0.2;
 const PTZ_HOLD_MS = 180;
 const PTZ_JOG_MS = 280;
@@ -47,13 +47,13 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [ptzMsg, setPtzMsg] = useState('');
   const [recBusy, setRecBusy] = useState(false);
-  /** True while a discrete PTZ command (tap, zoom, home, set-home) is in
-   * flight — disables the pad/zoom so rapid taps don't look unresponsive.
-   * Not used for the hold-to-jog interval itself (that has its own
-   * pressed/active visual and shouldn't flicker disabled between pulses). */
-  const [ptzBusy, setPtzBusy] = useState(false);
+  // No busy-disable lockout on the pad/zoom anymore — the daemon's supersede
+  // queue (see ptz-polish.md) makes rapid taps safe server-side, so the UI
+  // just shows a pressed/active state and never goes inert while a command
+  // is in flight. settingHome still guards against double-firing the
+  // confirm dialog / duplicate set_home calls — that's a rare, deliberate
+  // single action, not the rapid-tap case this removes.
   const [settingHome, setSettingHome] = useState(false);
-  const ptzBusyTimer = useRef<number | undefined>(undefined);
   const [ptzSpeedPct, setPtzSpeedPct] = useState(() => {
     try {
       const saved = Number(localStorage.getItem(PTZ_SPEED_KEY));
@@ -67,6 +67,13 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   const jogInterval = useRef<number | undefined>(undefined);
   const jogDir = useRef<PanDir | null>(null);
   const jogging = useRef(false);
+  // Zoom hold-to-jog — same pattern as the pan pad, independent state so pan
+  // and zoom can never cross-cancel each other.
+  const zoomJogTimer = useRef<number | undefined>(undefined);
+  const zoomJogInterval = useRef<number | undefined>(undefined);
+  const zoomJogDir = useRef<1 | -1 | null>(null);
+  const zoomJogging = useRef(false);
+  const [zoomActive, setZoomActive] = useState<1 | -1 | null>(null);
   const [ptzLiveSyncTick, setPtzLiveSyncTick] = useState(0);
 
   /** Snap selected feed to the true live edge on PTZ (not throttled — player debounces seeks). */
@@ -83,18 +90,6 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
   }, [cameras, selectedCamId]);
 
   const camNum = useCallback((id: string) => parseInt(id, 10) || 1, []);
-
-  /** Disables the pad/zoom while a discrete command is in flight; always
-   * re-enables within 3s even if the response never comes back. */
-  const beginPtzBusy = useCallback(() => {
-    setPtzBusy(true);
-    if (ptzBusyTimer.current) window.clearTimeout(ptzBusyTimer.current);
-    ptzBusyTimer.current = window.setTimeout(() => setPtzBusy(false), 3000);
-  }, []);
-  const endPtzBusy = useCallback(() => {
-    if (ptzBusyTimer.current) { window.clearTimeout(ptzBusyTimer.current); ptzBusyTimer.current = undefined; }
-    setPtzBusy(false);
-  }, []);
 
   const sendMove = useCallback((dir: PanDir | null, zoomDir: number, seconds: number) => {
     const cam = camNum(selectedCam?.id ?? '01');
@@ -126,16 +121,13 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     bumpLiveSync();
     setPtzMsg(`ptz ${dir}…`);
     jogDir.current = dir;
-    // Fire immediately on press so Network shows a move and the camera reacts
-    // without waiting for hold threshold or pointer-up. Busy-disable covers
-    // only this initial tap pulse — once a hold becomes a jog (below), the
-    // pad's own pressed/active state takes over and busy no longer applies,
-    // so repeated jog pulses don't flicker the buttons disabled/enabled.
-    beginPtzBusy();
+    // Fire immediately on press so the camera reacts without waiting for the
+    // hold threshold or pointer-up — the pad's own pressed/active visual
+    // (set by PtzPad itself on pointerdown) is the immediate feedback; we
+    // don't gate anything on this pulse's response.
     void sendMove(dir, 0, PTZ_PULSE_SEC)
       .then(() => setPtzMsg(`ptz ${dir}`))
-      .catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`))
-      .finally(() => endPtzBusy());
+      .catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
     jogTimer.current = window.setTimeout(() => {
       jogTimer.current = undefined;
       jogging.current = true;
@@ -145,7 +137,7 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
         void sendMove(dir, 0, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
       }, PTZ_JOG_MS);
     }, PTZ_HOLD_MS);
-  }, [stopJog, sendMove, bumpLiveSync, beginPtzBusy, endPtzBusy]);
+  }, [stopJog, sendMove, bumpLiveSync]);
 
   const panEnd = useCallback(() => {
     // Tap already sent a pulse on panStart; only clear hold-to-jog if still pending.
@@ -158,15 +150,49 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
     stopJog();
   }, [stopJog]);
 
-  const zoomBy = useCallback((d: number) => {
+  const stopZoomJog = useCallback(() => {
+    if (zoomJogTimer.current !== undefined) { window.clearTimeout(zoomJogTimer.current); zoomJogTimer.current = undefined; }
+    if (zoomJogInterval.current !== undefined) { window.clearInterval(zoomJogInterval.current); zoomJogInterval.current = undefined; }
+    if (zoomJogging.current) {
+      zoomJogging.current = false;
+      bumpLiveSync();
+      void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01') });
+    }
+    zoomJogDir.current = null;
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
+
+  /** Zoom+/Zoom- are now hold controls, mirroring the pan pad exactly: an
+   * immediate short pulse on press (so a quick tap under PTZ_HOLD_MS still
+   * reads as a small discrete nudge), and if held past that threshold, a
+   * repeating pulse every PTZ_JOG_MS until release. */
+  const zoomStart = useCallback((dir: 1 | -1) => {
+    stopZoomJog();
     bumpLiveSync();
-    const dir = d > 0 ? 1 : -1;
-    beginPtzBusy();
+    setPtzMsg(dir > 0 ? 'zoom in…' : 'zoom out…');
+    zoomJogDir.current = dir;
     void sendMove(null, dir, PTZ_PULSE_SEC)
-      .then(() => setPtzMsg('zoom ok'))
-      .catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`))
-      .finally(() => endPtzBusy());
-  }, [sendMove, bumpLiveSync, beginPtzBusy, endPtzBusy]);
+      .then(() => setPtzMsg(dir > 0 ? 'zoom in' : 'zoom out'))
+      .catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
+    zoomJogTimer.current = window.setTimeout(() => {
+      zoomJogTimer.current = undefined;
+      zoomJogging.current = true;
+      bumpLiveSync();
+      setPtzMsg('zoom…');
+      zoomJogInterval.current = window.setInterval(() => {
+        void sendMove(null, dir, PTZ_PULSE_SEC).catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
+      }, PTZ_JOG_MS);
+    }, PTZ_HOLD_MS);
+  }, [stopZoomJog, sendMove, bumpLiveSync]);
+
+  const zoomEnd = useCallback(() => {
+    if (zoomJogTimer.current !== undefined) {
+      window.clearTimeout(zoomJogTimer.current);
+      zoomJogTimer.current = undefined;
+      zoomJogDir.current = null;
+      return;
+    }
+    stopZoomJog();
+  }, [stopZoomJog]);
 
   const captureSnapshot = useCallback(async (camId: string) => {
     try {
@@ -214,30 +240,27 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
 
   const recenter = useCallback(() => {
     bumpLiveSync();
-    beginPtzBusy();
     void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01'), home: true })
       .then(() => setPtzMsg('home ok'))
-      .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`))
-      .finally(() => endPtzBusy());
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, beginPtzBusy, endPtzBusy]);
+      .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`));
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
 
   const setHome = useCallback(() => {
-    if (settingHome || ptzBusy) return;
+    if (settingHome) return;
     if (!window.confirm('Save current position as Home?')) return;
     setSettingHome(true);
-    beginPtzBusy();
     void ptzSetHome(session, deviceId, camNum(selectedCam?.id ?? '01'))
       .then(() => setPtzMsg('home saved'))
       .catch((e: unknown) => setPtzMsg(`set home failed: ${formatApiError(e)}`))
-      .finally(() => { setSettingHome(false); endPtzBusy(); });
-  }, [session, deviceId, selectedCam, camNum, settingHome, ptzBusy, beginPtzBusy, endPtzBusy]);
+      .finally(() => setSettingHome(false));
+  }, [session, deviceId, selectedCam, camNum, settingHome]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
 
-  useEffect(() => () => stopJog(), [stopJog]);
+  useEffect(() => () => { stopJog(); stopZoomJog(); }, [stopJog, stopZoomJog]);
 
   const utc = formatClockUTC1(now);
 
@@ -328,31 +351,61 @@ export default function DashboardConsole({ deviceId, deviceLabel }: Props) {
             <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textFaint }}>{ptzMsg}</div>
             <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <PtzPad accent={ACCENT} onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} disabled={ptzBusy} />
+              <PtzPad accent={ACCENT} onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
             </div>
             <button
               type="button"
               onClick={setHome}
-              disabled={ptzBusy || settingHome}
+              disabled={settingHome}
               title="Save current position as Home"
               style={{
                 alignSelf: 'center',
                 background: 'none',
                 border: 'none',
-                cursor: ptzBusy || settingHome ? 'not-allowed' : 'pointer',
+                cursor: settingHome ? 'not-allowed' : 'pointer',
                 color: colors.textFaint,
                 fontFamily: font.mono,
                 fontSize: 9,
                 letterSpacing: '.08em',
                 padding: '2px 8px 6px',
-                opacity: ptzBusy || settingHome ? 0.4 : 0.75,
+                opacity: settingHome ? 0.4 : 0.75,
               }}
             >
               ⚑ SET HOME
             </button>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="ctl-btn" disabled={ptzBusy} onClick={() => zoomBy(-ZOOM_STEP)}>− ZOOM</button>
-              <button className="ctl-btn" disabled={ptzBusy} onClick={() => zoomBy(ZOOM_STEP)}>ZOOM +</button>
+              <button
+                type="button"
+                className={`ctl-btn${zoomActive === -1 ? ' active' : ''}`}
+                style={{ '--accent': ACCENT } as CSSProperties}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  setZoomActive(-1);
+                  zoomStart(-1);
+                }}
+                onPointerUp={(e) => { e.preventDefault(); setZoomActive(null); zoomEnd(); }}
+                onPointerCancel={() => { setZoomActive(null); zoomEnd(); }}
+                onLostPointerCapture={() => { setZoomActive(null); zoomEnd(); }}
+              >
+                − ZOOM
+              </button>
+              <button
+                type="button"
+                className={`ctl-btn${zoomActive === 1 ? ' active' : ''}`}
+                style={{ '--accent': ACCENT } as CSSProperties}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  setZoomActive(1);
+                  zoomStart(1);
+                }}
+                onPointerUp={(e) => { e.preventDefault(); setZoomActive(null); zoomEnd(); }}
+                onPointerCancel={() => { setZoomActive(null); zoomEnd(); }}
+                onLostPointerCapture={() => { setZoomActive(null); zoomEnd(); }}
+              >
+                ZOOM +
+              </button>
             </div>
           </aside>
         )}
