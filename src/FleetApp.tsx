@@ -65,6 +65,7 @@ export default function FleetApp() {
         onSelectView={setView}
         onOpenSensors={() => openPanel('sensors')}
         onOpenAlerts={() => openPanel('alerts')}
+        onOpenTowerMenu={() => setDrawerOpen(true)}
         initials={initials(deviceLabel)}
         alertBadge={alertBadge}
       />

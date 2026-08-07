@@ -62,7 +62,11 @@ body {
   display: flex; align-items: center; justify-content: center;
   background: linear-gradient(150deg, oklch(0.72 0.16 275), oklch(0.62 0.17 292));
   color: #0b0b10; font-weight: 600; font-size: 14px;
+  border: none; cursor: pointer; padding: 0;
+  transition: filter .12s, transform .08s;
 }
+.rail-logo:hover { filter: brightness(1.12); }
+.rail-logo:active { transform: scale(0.94); }
 .rail-nav-btn {
   position: relative;
   width: 36px; height: 36px; border-radius: 9px; flex: none;

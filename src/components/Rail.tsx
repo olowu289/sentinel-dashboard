@@ -8,6 +8,8 @@ interface Props {
   onSelectView: (v: RailView) => void;
   onOpenSensors: () => void;
   onOpenAlerts: () => void;
+  /** Opens the tower drawer (fleet switcher) — the logo doubles as this menu button. */
+  onOpenTowerMenu: () => void;
   initials: string;
   /** Open (unresolved) detection incidents — small count badge on the Alerts icon. */
   alertBadge?: number;
@@ -42,10 +44,25 @@ const iconProps = {
  * detail panel (same one the sensor strip's "Details" pill opens), just
  * pre-focused on the relevant section.
  */
-export default function Rail({ view, onSelectView, onOpenSensors, onOpenAlerts, initials, alertBadge = 0 }: Props) {
+export default function Rail({
+  view, onSelectView, onOpenSensors, onOpenAlerts, onOpenTowerMenu, initials, alertBadge = 0,
+}: Props) {
   return (
     <div className="rail">
-      <div className="rail-logo" style={{ fontFamily: font.display }}>S</div>
+      <button
+        type="button"
+        className="rail-logo"
+        style={{ fontFamily: font.display }}
+        onClick={onOpenTowerMenu}
+        aria-label="Towers"
+        title="Towers"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" aria-hidden="true">
+          <line x1="4" y1="7" x2="20" y2="7" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="4" y1="17" x2="20" y2="17" />
+        </svg>
+      </button>
 
       <NavIcon active={view === 'live'} title="Live wall" onClick={() => onSelectView('live')}>
         <svg {...iconProps}>
