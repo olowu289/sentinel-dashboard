@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AlertEvent, Sensor } from '../types';
 import { alertColor, levelColor } from '../util';
+import { colors } from '../tokens';
+import { formatRelativeTime } from '../clock';
 
 interface Props {
   open: boolean;
@@ -62,7 +64,35 @@ function Card({ s }: { s: Sensor }) {
   );
 }
 
-function AlertRow({ a }: { a: AlertEvent }) {
+/** Detection alerts (from the AI bridge's raise/refresh/clear incidents)
+ * get a dedicated layout — class + camera + confidence + relative time,
+ * raised/refreshed bold/accented, cleared dimmed. Everything else (health/
+ * watchdog alerts) keeps the generic type+time+JSON row below. */
+function DetectionAlertRow({ a, nowMs }: { a: AlertEvent; nowMs: number }) {
+  const p = a.payload;
+  const state = String(p.state ?? '');
+  const cleared = state === 'cleared';
+  const className = String(p.class_name ?? 'object');
+  const camera = p.camera != null ? String(p.camera) : '';
+  const confidence = typeof p.confidence === 'number' ? `${Math.round(p.confidence * 100)}%` : '';
+  const color = cleared ? colors.textCaption : colors.accentText;
+  return (
+    <div className="ai" style={{ borderLeftColor: cleared ? colors.line2 : colors.accent }}>
+      <div className="ai-top">
+        <span className="ai-type" style={{ color, fontWeight: cleared ? 400 : 700 }}>
+          {className.toUpperCase()}{camera && ` · ${camera.toUpperCase()}`}{confidence && ` · ${confidence}`}
+        </span>
+        <span className="ai-time">{formatRelativeTime(a.timestampUtc, nowMs)}</span>
+      </div>
+      <div className="ai-json" style={{ color: cleared ? colors.textCaption : colors.textDim }}>
+        {state.toUpperCase()}
+      </div>
+    </div>
+  );
+}
+
+function AlertRow({ a, nowMs }: { a: AlertEvent; nowMs: number }) {
+  if (a.type === 'detection') return <DetectionAlertRow a={a} nowMs={nowMs} />;
   const hasPayload = a.payload && Object.keys(a.payload).length > 0;
   return (
     <div className="ai" style={{ borderLeftColor: alertColor(a.level) }}>
@@ -77,12 +107,21 @@ function AlertRow({ a }: { a: AlertEvent }) {
 
 export default function SensorPanel({ open, deviceName, sensors, alerts, connected, initialFocus, onClose }: Props) {
   const alertsRef = useRef<HTMLDivElement>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (open && initialFocus === 'alerts') {
       alertsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [open, initialFocus]);
+
+  // Relative-time labels ("2m ago") only need to tick while the panel is
+  // actually visible.
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [open]);
 
   return (
     <div className={`mon-root${open ? ' open' : ''}`} aria-hidden={!open}>
@@ -110,7 +149,7 @@ export default function SensorPanel({ open, deviceName, sensors, alerts, connect
             <div className="al-head"><span className="t">LIVE ALERTS</span><span className="al-count">{alerts.length}</span></div>
             <div className="al-list">
               {alerts.length === 0 && <div className="al-empty">No active alerts.</div>}
-              {alerts.map((a) => <AlertRow key={a.id} a={a} />)}
+              {alerts.map((a) => <AlertRow key={a.id} a={a} nowMs={nowMs} />)}
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { colors } from './tokens';
-import type { AlertLevel, Sensor, SensorLevel } from './types';
+import type { AlertEvent, AlertLevel, Sensor, SensorLevel } from './types';
 
 export function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -93,4 +93,19 @@ export function levelColor(level: SensorLevel): string {
 
 export function alertColor(level: AlertLevel): string {
   return level === 'bad' ? colors.offline : level === 'warn' ? colors.standby : colors.online;
+}
+
+/** Distinct (camera, class) detection incidents still open — the alerts
+ * bell badge. `alerts` is stored newest-first, so walk it in reverse to
+ * replay raised/refreshed/cleared in the order they actually happened. */
+export function openDetectionIncidentCount(alerts: AlertEvent[]): number {
+  const open = new Set<string>();
+  for (let i = alerts.length - 1; i >= 0; i--) {
+    const a = alerts[i];
+    if (a.type !== 'detection') continue;
+    const key = `${a.payload.camera}|${a.payload.class_name}`;
+    if (a.payload.state === 'cleared') open.delete(key);
+    else open.add(key);
+  }
+  return open.size;
 }

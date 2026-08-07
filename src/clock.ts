@@ -15,6 +15,22 @@ export function formatDateTimeUTC1(iso: string): string {
   return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC+1';
 }
 
+/** "2m ago" style relative time against a caller-supplied `nowMs` (no
+ * internal ticking clock — re-renders naturally on every new alert/poll). */
+export function formatRelativeTime(iso: string | null, nowMs: number): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const deltaSec = Math.max(0, Math.round((nowMs - t) / 1000));
+  if (deltaSec < 5) return 'just now';
+  if (deltaSec < 60) return `${deltaSec}s ago`;
+  const min = Math.round(deltaSec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.round(hr / 24)}d ago`;
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;

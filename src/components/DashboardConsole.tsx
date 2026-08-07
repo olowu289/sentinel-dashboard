@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { colors, font } from '../tokens';
 import { formatClockUTC1 } from '../clock';
-import { formatApiError, linkStatusLabel } from '../util';
+import { formatApiError, linkStatusLabel, openDetectionIncidentCount } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { useTowerLive } from '../useTowerLive';
@@ -40,10 +40,12 @@ interface Props {
   onOpenTowerMenu: () => void;
   /** Bumped by the rail's Sensors/Alerts icons to open the panel remotely. */
   openPanelSignal: { tick: number; focus: 'sensors' | 'alerts' } | null;
+  /** Reports the open-detection-incident count up to FleetApp for the rail's Alerts badge. */
+  onAlertBadge?: (n: number) => void;
 }
 
 export default function DashboardConsole({
-  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu, openPanelSignal,
+  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu, openPanelSignal, onAlertBadge,
 }: Props) {
   const { client, session, logout } = usePlatform();
   const [selectedCamId, setSelectedCamId] = useState('01');
@@ -53,6 +55,7 @@ export default function DashboardConsole({
     recording, setRecordingLocal,
   } = useTowerLive(deviceId, selectedCamId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
+  useEffect(() => { onAlertBadge?.(openDetectionIncidentCount(alerts)); }, [alerts, onAlertBadge]);
   const ngrok = session.baseUrl.includes('ngrok');
   // Hub reachability (Platform API can talk to the tower via hub) — not sensor health.
   const linkColor = connected ? colors.online : colors.offline;

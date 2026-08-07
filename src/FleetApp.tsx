@@ -20,6 +20,9 @@ export default function FleetApp() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [view, setView] = useState<RailView>('live');
   const [now, setNow] = useState(() => Date.now());
+  /** Open detection-incident count, reported up by DashboardConsole (which
+   * owns the live alerts feed) for the rail's Alerts icon badge. */
+  const [alertBadge, setAlertBadge] = useState(0);
   /** Bumped by the rail's Sensors/Alerts icons to remotely open the sensor
    * panel (which lives inside DashboardConsole, since that's where the live
    * sensor/alert data is) even when the operator is on the Recordings view. */
@@ -63,6 +66,7 @@ export default function FleetApp() {
         onOpenSensors={() => openPanel('sensors')}
         onOpenAlerts={() => openPanel('alerts')}
         initials={initials(deviceLabel)}
+        alertBadge={alertBadge}
       />
 
       <div className="fleet-main">
@@ -82,6 +86,7 @@ export default function FleetApp() {
             onSelectView={setView}
             onOpenTowerMenu={() => setDrawerOpen(true)}
             openPanelSignal={panelRequest}
+            onAlertBadge={setAlertBadge}
           />
         )}
 

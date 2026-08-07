@@ -9,6 +9,8 @@ interface Props {
   onOpenSensors: () => void;
   onOpenAlerts: () => void;
   initials: string;
+  /** Open (unresolved) detection incidents — small count badge on the Alerts icon. */
+  alertBadge?: number;
 }
 
 function NavIcon({ active, title, onClick, children }: {
@@ -40,7 +42,7 @@ const iconProps = {
  * detail panel (same one the sensor strip's "Details" pill opens), just
  * pre-focused on the relevant section.
  */
-export default function Rail({ view, onSelectView, onOpenSensors, onOpenAlerts, initials }: Props) {
+export default function Rail({ view, onSelectView, onOpenSensors, onOpenAlerts, initials, alertBadge = 0 }: Props) {
   return (
     <div className="rail">
       <div className="rail-logo" style={{ fontFamily: font.display }}>S</div>
@@ -66,11 +68,12 @@ export default function Rail({ view, onSelectView, onOpenSensors, onOpenAlerts, 
         </svg>
       </NavIcon>
 
-      <NavIcon active={false} title="Alerts" onClick={onOpenAlerts}>
+      <NavIcon active={false} title={`Alerts${alertBadge > 0 ? ` (${alertBadge} open)` : ''}`} onClick={onOpenAlerts}>
         <svg {...iconProps}>
           <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
+        {alertBadge > 0 && <span className="rail-badge">{alertBadge > 9 ? '9+' : alertBadge}</span>}
       </NavIcon>
 
       <div style={{ flex: 1 }} />

@@ -64,12 +64,20 @@ body {
   color: #0b0b10; font-weight: 600; font-size: 14px;
 }
 .rail-nav-btn {
+  position: relative;
   width: 36px; height: 36px; border-radius: 9px; flex: none;
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: 1px solid transparent; color: rgba(230, 232, 236, .55);
   cursor: pointer; transition: background .12s, border-color .12s, color .12s;
 }
 .rail-nav-btn:hover { background: rgba(255, 255, 255, .06); }
+.rail-badge {
+  position: absolute; top: -3px; right: -3px; min-width: 15px; height: 15px; padding: 0 3px;
+  border-radius: 8px; background: oklch(0.65 0.19 20); color: #fff;
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 0 2px #0a0b0e;
+}
 .rail-nav-btn.active {
   background: rgba(140, 150, 255, .14); border-color: rgba(150, 160, 255, .25);
   color: oklch(0.78 0.13 275);
