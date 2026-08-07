@@ -1,13 +1,11 @@
 import type { ReactNode } from 'react';
 import { colors, font } from '../tokens';
 
-export type RailView = 'live' | 'recordings';
+export type RailView = 'live' | 'recordings' | 'sensors' | 'alerts';
 
 interface Props {
   view: RailView;
   onSelectView: (v: RailView) => void;
-  onOpenSensors: () => void;
-  onOpenAlerts: () => void;
   /** Opens the tower drawer (fleet switcher) — the logo doubles as this menu button. */
   onOpenTowerMenu: () => void;
   initials: string;
@@ -38,14 +36,9 @@ const iconProps = {
   'aria-hidden': true,
 };
 
-/**
- * Left icon rail — persistent app chrome (logo, section nav, avatar). Sensors
- * and Alerts don't have dedicated screens; both open the existing sensor
- * detail panel (same one the sensor strip's "Details" pill opens), just
- * pre-focused on the relevant section.
- */
+/** Left icon rail — persistent app chrome (logo, section nav, avatar). */
 export default function Rail({
-  view, onSelectView, onOpenSensors, onOpenAlerts, onOpenTowerMenu, initials, alertBadge = 0,
+  view, onSelectView, onOpenTowerMenu, initials, alertBadge = 0,
 }: Props) {
   return (
     <div className="rail">
@@ -79,13 +72,17 @@ export default function Rail({
         </svg>
       </NavIcon>
 
-      <NavIcon active={false} title="Sensors" onClick={onOpenSensors}>
+      <NavIcon active={view === 'sensors'} title="Sensors" onClick={() => onSelectView('sensors')}>
         <svg {...iconProps}>
           <path d="M2 12h4l2.5-7 5 14 2.5-7H22" />
         </svg>
       </NavIcon>
 
-      <NavIcon active={false} title={`Alerts${alertBadge > 0 ? ` (${alertBadge} open)` : ''}`} onClick={onOpenAlerts}>
+      <NavIcon
+        active={view === 'alerts'}
+        title={`Alerts${alertBadge > 0 ? ` (${alertBadge} open)` : ''}`}
+        onClick={() => onSelectView('alerts')}
+      >
         <svg {...iconProps}>
           <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />

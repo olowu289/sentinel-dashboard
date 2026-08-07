@@ -13,7 +13,6 @@ import TowerFeed from './TowerFeed';
 import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
-import SensorPanel from './SensorPanel';
 import AiDetectionView from './AiDetectionView';
 
 const ACCENT = colors.accent;
@@ -38,14 +37,12 @@ interface Props {
   view: RailView;
   onSelectView: (v: RailView) => void;
   onOpenTowerMenu: () => void;
-  /** Bumped by the rail's Sensors/Alerts icons to open the panel remotely. */
-  openPanelSignal: { tick: number; focus: 'sensors' | 'alerts' } | null;
   /** Reports the open-detection-incident count up to FleetApp for the rail's Alerts badge. */
   onAlertBadge?: (n: number) => void;
 }
 
 export default function DashboardConsole({
-  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu, openPanelSignal, onAlertBadge,
+  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu, onAlertBadge,
 }: Props) {
   const { client, session, logout } = usePlatform();
   const [selectedCamId, setSelectedCamId] = useState('01');
@@ -64,8 +61,6 @@ export default function DashboardConsole({
   const [now, setNow] = useState(() => Date.now());
   const [controlOpen, setControlOpen] = useState(true);
   const [spotlight, setSpotlight] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [panelFocus, setPanelFocus] = useState<'sensors' | 'alerts'>('sensors');
   const [ptzMsg, setPtzMsg] = useState('');
   const [recBusy, setRecBusy] = useState(false);
   // No busy-disable lockout on the pad/zoom anymore — the daemon's supersede
@@ -109,14 +104,6 @@ export default function DashboardConsole({
       setSelectedCamId(cameras[0].id);
     }
   }, [cameras, selectedCamId]);
-
-  // Rail's Sensors/Alerts icons open this panel remotely (see FleetApp).
-  useEffect(() => {
-    if (!openPanelSignal) return;
-    setPanelFocus(openPanelSignal.focus);
-    setPanelOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openPanelSignal?.tick]);
 
   const camNum = useCallback((id: string) => parseInt(id, 10) || 1, []);
 
@@ -350,7 +337,7 @@ export default function DashboardConsole({
         deviceName={deviceLabel}
         connected={connected}
         linkError={linkError}
-        onOpenDetail={() => { setPanelFocus('sensors'); setPanelOpen(true); }}
+        onOpenDetail={() => onSelectView('sensors')}
       />
 
       <main className={`console${controlOpen ? '' : ' collapsed'}`}>
@@ -478,16 +465,6 @@ export default function DashboardConsole({
           </aside>
         )}
       </main>
-
-      <SensorPanel
-        open={panelOpen}
-        deviceName={deviceLabel}
-        sensors={sensors}
-        alerts={alerts}
-        connected={connected}
-        initialFocus={panelFocus}
-        onClose={() => setPanelOpen(false)}
-      />
 
       {aiView && (
         <AiDetectionView

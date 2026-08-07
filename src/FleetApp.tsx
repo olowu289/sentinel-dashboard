@@ -4,6 +4,8 @@ import { usePlatform } from './platformContext';
 import type { Tower } from './types';
 import DashboardConsole from './components/DashboardConsole';
 import RecordingsView from './components/RecordingsView';
+import SensorsView from './components/SensorsView';
+import AlertsView from './components/AlertsView';
 import TowerDrawer from './components/TowerDrawer';
 import TowerMenu from './components/TowerMenu';
 import Rail, { type RailView } from './components/Rail';
@@ -20,13 +22,10 @@ export default function FleetApp() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [view, setView] = useState<RailView>('live');
   const [now, setNow] = useState(() => Date.now());
-  /** Open detection-incident count, reported up by DashboardConsole (which
-   * owns the live alerts feed) for the rail's Alerts icon badge. */
+  /** Open detection-incident count, reported up by whichever view currently
+   * owns the live alerts feed (DashboardConsole or AlertsView), for the
+   * rail's Alerts icon badge. */
   const [alertBadge, setAlertBadge] = useState(0);
-  /** Bumped by the rail's Sensors/Alerts icons to remotely open the sensor
-   * panel (which lives inside DashboardConsole, since that's where the live
-   * sensor/alert data is) even when the operator is on the Recordings view. */
-  const [panelRequest, setPanelRequest] = useState<{ tick: number; focus: 'sensors' | 'alerts' } | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -53,18 +52,11 @@ export default function FleetApp() {
 
   const deviceLabel = selected ? selected.name : session.customerId.toUpperCase();
 
-  const openPanel = (focus: 'sensors' | 'alerts') => {
-    setView('live');
-    setPanelRequest((r) => ({ tick: (r?.tick ?? 0) + 1, focus }));
-  };
-
   return (
     <div className="fleet-shell">
       <Rail
         view={view}
         onSelectView={setView}
-        onOpenSensors={() => openPanel('sensors')}
-        onOpenAlerts={() => openPanel('alerts')}
         onOpenTowerMenu={() => setDrawerOpen(true)}
         initials={initials(deviceLabel)}
         alertBadge={alertBadge}
@@ -86,7 +78,6 @@ export default function FleetApp() {
             view={view}
             onSelectView={setView}
             onOpenTowerMenu={() => setDrawerOpen(true)}
-            openPanelSignal={panelRequest}
             onAlertBadge={setAlertBadge}
           />
         )}
@@ -100,6 +91,31 @@ export default function FleetApp() {
             view={view}
             onSelectView={setView}
             onOpenTowerMenu={() => setDrawerOpen(true)}
+          />
+        )}
+
+        {selected && !loading && view === 'sensors' && (
+          <SensorsView
+            key={`sensors-${selected.id}`}
+            towers={towers}
+            selectedTowerId={selected.id}
+            onSelectTower={setSelectedTowerId}
+            view={view}
+            onSelectView={setView}
+            onOpenTowerMenu={() => setDrawerOpen(true)}
+          />
+        )}
+
+        {selected && !loading && view === 'alerts' && (
+          <AlertsView
+            key={`alerts-${selected.id}`}
+            towers={towers}
+            selectedTowerId={selected.id}
+            onSelectTower={setSelectedTowerId}
+            view={view}
+            onSelectView={setView}
+            onOpenTowerMenu={() => setDrawerOpen(true)}
+            onAlertBadge={setAlertBadge}
           />
         )}
       </div>

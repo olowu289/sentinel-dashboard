@@ -16,8 +16,8 @@ function haloColor(level: SensorLevel): string {
 
 /**
  * Tower context bar — this tower's live vitals as a row of status chips, plus a
- * DETAILS button that opens the full sensor panel. Only sensors the tower
- * actually reports are shown as chips.
+ * DETAILS button that navigates to the full Sensors page. Only sensors the
+ * tower actually reports are shown as chips.
  */
 export default function SensorBar({ sensors, deviceName, connected, linkError, onOpenDetail }: Props) {
   const chips = sensors.filter((s) => s.inBar && s.available !== false);

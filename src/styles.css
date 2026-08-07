@@ -452,31 +452,10 @@ body {
 }
 .sb-more:hover { background: rgba(255, 255, 255, .05); color: #e6e8ec; }
 
-/* ---- sensor monitor overlay (DETAILS / rail Sensors+Alerts) ---- */
-.mon-root { position: fixed; inset: 0; z-index: 55; pointer-events: none; }
-.mon-root.open { pointer-events: auto; }
-.mon-backdrop { position: absolute; inset: 0; background: rgba(4, 6, 8, .65); opacity: 0; transition: opacity .2s ease; }
-.mon-root.open .mon-backdrop { opacity: 1; }
-.mon {
-  position: absolute; top: 50%; left: 50%;
-  width: min(1160px, 94vw); max-height: 92vh;
-  display: flex; flex-direction: column; overflow: hidden;
-  background: #0b0d11; border: 1px solid rgba(255, 255, 255, .09); border-radius: 14px;
-  box-shadow: 0 40px 100px -40px rgba(0, 0, 0, .92);
-  transform: translate(-50%, -50%) scale(.98); opacity: 0;
-  transition: transform .2s ease, opacity .2s ease;
-}
-.mon-root.open .mon { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-
-.mon-top { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid rgba(255, 255, 255, .07); background: #0a0b0e; }
-.mon-brand { font-size: 18px; font-weight: 600; letter-spacing: .06em; color: #e6e8ec; }
-.mon-brand small { display: block; font-weight: 500; font-size: 9px; letter-spacing: .22em; color: #5f6673; margin-top: 2px; }
-.mon-conn { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .1em; color: #e6e8ec; }
-.mon-conn .d { width: 8px; height: 8px; border-radius: 50%; background: #ffffff; box-shadow: 0 0 8px #ffffff; }
-.mon-close { width: 30px; height: 30px; border: 1px solid rgba(255, 255, 255, .08); border-radius: 8px; background: transparent; color: #9aa1ad; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: border-color .12s, color .12s; }
-.mon-close:hover { border-color: rgba(150, 160, 255, .4); color: #e6e8ec; }
-
-.mon-body { display: grid; grid-template-columns: 1fr 320px; gap: 16px; padding: 16px 20px 20px; overflow-y: auto; }
+/* ---- Sensors / Alerts pages (own top-level views, see SensorsView/AlertsView) ---- */
+.sensors-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 20px; }
+.alerts-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px 20px; }
+.alerts-body .alerts { flex: 1; min-height: 0; max-width: 720px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; align-content: start; }
 
 .mcard { position: relative; border: 1px solid rgba(255, 255, 255, .07); border-radius: 10px; background: #0f1216; padding: 14px 15px 15px; overflow: hidden; }
@@ -514,9 +493,6 @@ body {
 .ai-time { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #5f6673; white-space: nowrap; }
 .ai-json { margin-top: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; line-height: 1.5; color: #9aa1ad; word-break: break-word; background: rgba(0, 0, 0, .32); border: 1px solid rgba(255, 255, 255, .06); border-radius: 6px; padding: 6px 8px; }
 
-@media (max-width: 760px) {
-  .mon-body { grid-template-columns: 1fr; }
-}
 
 /* ---- responsive ---- */
 @media (max-width: 900px) {
