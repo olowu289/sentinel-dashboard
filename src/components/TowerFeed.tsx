@@ -3,6 +3,7 @@ import type { Camera } from '../types';
 import { colors, font } from '../tokens';
 import type { TileStats } from '../liveStats';
 import LiveVideo from './LiveVideo';
+import { aiStreamNameFor } from '../aiConfig';
 
 interface Props {
   camera: Camera;
@@ -13,6 +14,8 @@ interface Props {
   onSelect: () => void;
   onToggleSpotlight: () => void;
   onSnapshot: () => Promise<string | null>;
+  /** Opens the fullscreen AI detection viewer for this tile's registered AI stream. */
+  onOpenAiView?: (streamName: string) => void;
   /** Platform API HLS playlist URL — compatibility fallback */
   hlsUrl?: string;
   /** Platform API WHEP create-session URL — tried first, sub-second latency */
@@ -42,7 +45,7 @@ function telemetryText(hasSource: boolean, stats: TileStats | null): string {
  * the global recording flag.
  */
 export default function TowerFeed({
-  camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot,
+  camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot, onOpenAiView,
   hlsUrl, whepUrl, apiKey, ngrok = false, syncLiveTick,
 }: Props) {
   const [flash, setFlash] = useState(false);
@@ -50,6 +53,7 @@ export default function TowerFeed({
   const [stats, setStats] = useState<TileStats | null>(null);
   const streamReady = camera.status === 'ONLINE';
   const hasSource = !!(whepUrl || hlsUrl) && streamReady;
+  const aiStreamName = aiStreamNameFor(camera.path);
 
   const statusColor =
     camera.status === 'ONLINE' ? colors.online : camera.status === 'STANDBY' ? colors.standby : colors.offlineLabel;
@@ -147,6 +151,17 @@ export default function TowerFeed({
               <circle cx="12" cy="13" r="4" />
             </svg>
           </button>
+
+          {aiStreamName && onOpenAiView && (
+            <button
+              className="feed-action-btn feed-ai-btn"
+              onClick={() => onOpenAiView(aiStreamName)}
+              aria-label="Open AI detection view"
+              title="AI View"
+            >
+              AI
+            </button>
+          )}
         </div>
       </div>
 

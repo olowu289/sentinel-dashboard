@@ -14,6 +14,7 @@ import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
 import SensorPanel from './SensorPanel';
+import AiDetectionView from './AiDetectionView';
 
 const ACCENT = colors.accent;
 const PTZ_PULSE_SEC = 0.2;
@@ -46,6 +47,7 @@ export default function DashboardConsole({
 }: Props) {
   const { client, session, logout } = usePlatform();
   const [selectedCamId, setSelectedCamId] = useState('01');
+  const [aiView, setAiView] = useState<{ streamName: string; cameraLabel: string } | null>(null);
   const {
     streams, status, connected, linkError, cameras, alerts, hlsUrls, webrtcUrls,
     recording, setRecordingLocal,
@@ -370,6 +372,7 @@ export default function DashboardConsole({
               onSnapshot={() => captureSnapshot(c.id)}
               hlsUrl={c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
               whepUrl={c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined}
+              onOpenAiView={(streamName) => setAiView({ streamName, cameraLabel: c.label })}
               syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
               apiKey={session.apiKey}
               ngrok={ngrok}
@@ -482,6 +485,15 @@ export default function DashboardConsole({
         initialFocus={panelFocus}
         onClose={() => setPanelOpen(false)}
       />
+
+      {aiView && (
+        <AiDetectionView
+          key={aiView.streamName}
+          streamName={aiView.streamName}
+          cameraLabel={aiView.cameraLabel}
+          onClose={() => setAiView(null)}
+        />
+      )}
     </div>
   );
 }
