@@ -8,9 +8,12 @@ import {
 /**
  * Fullscreen diagnostic viewer: direct WHEP video from the Perception
  * Engine's own MediaMTX + a msgpack detection-WS overlay. Deliberately
- * "dumb" compared to LiveWebrtcVideo — no drift watchdog, no HLS fallback,
- * no stream-starting retry probes. A LAN-reachability failure on either
- * leg surfaces as a plain message, never an infinite spinner.
+ * "dumb" compared to LiveWebrtcVideo — no make-before-break resync, no HLS
+ * fallback, no stream-starting retry probes. Does borrow LiveWebrtcVideo's
+ * two known latency cures: a jitterBufferTarget hint, and (a much cheaper
+ * version of its drift watchdog) a periodic seek-to-live snap instead of
+ * rebuilding the session. A LAN-reachability failure on either leg surfaces
+ * as a plain message, never an infinite spinner.
  */
 
 const ICE_SERVERS: RTCIceServer[] = [
@@ -24,6 +27,10 @@ const FRAME_SEQ_BACKWARD_JUMP = 30;
 const STREAM_STATE_POLL_MS = 5000;
 const UNREACHABLE_MSG = 'AI engine unreachable from this network';
 const DEFAULT_OWNER = 'sentinel';
+/** How often the minimal drift guard checks currentTime advance vs wall clock. */
+const DRIFT_CHECK_MS = 10000;
+/** Cumulative lag (seconds) before we snap to the freshest buffered frame. */
+const DRIFT_RESYNC_THRESHOLD_SEC = 3;
 
 interface Detection { bbox: [number, number, number, number]; name: string; conf: number; }
 interface DetectionBody {
@@ -74,6 +81,9 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   const lastFrameSeqRef = useRef<number | null>(null);
   const detCountRef = useRef(0);
   const streamIdRef = useRef<string | null>(null);
+  /** Minimal drift guard state — see the WHEP effect below. */
+  const driftCheckRef = useRef<{ wallMs: number; videoTime: number } | null>(null);
+  const cumulativeLagSecRef = useRef(0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -86,6 +96,7 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
     let cancelled = false;
     let pc: RTCPeerConnection | null = null;
     let sessionUrl: string | null = null;
+    let driftTimer: number | undefined;
     const timeout = window.setTimeout(() => {
       if (!cancelled) { setWhepState('error'); setErrorMsg((m) => m ?? UNREACHABLE_MSG); }
     }, CONNECT_TIMEOUT_MS);
@@ -118,6 +129,45 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
       if (cancelled) { deleteWhepSession(url); pc.close(); return; }
       sessionUrl = url;
       await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+      if (cancelled) return;
+
+      // Hint a deeper jitter buffer (ms) to the decoder — same feature-checked
+      // pattern as LiveWebrtcVideo; not all browsers support this property yet.
+      for (const receiver of pc.getReceivers()) {
+        if (receiver.track.kind !== 'video') continue;
+        try {
+          if ('jitterBufferTarget' in receiver) {
+            (receiver as unknown as { jitterBufferTarget: number }).jitterBufferTarget = 250;
+          }
+        } catch { /* not supported in this browser — fine, it's just a hint */ }
+      }
+
+      // Minimal drift guard — not LiveWebrtcVideo's full make-before-break
+      // resync, just a periodic seek-to-live. WebRTC video elements normally
+      // keep tiny buffers, but with a TCP ICE candidate pair and engine-side
+      // queueing, playout can quietly fall behind; snapping straight to the
+      // freshest buffered frame is far cheaper than rebuilding the session,
+      // which is an acceptable trade for a diagnostic view.
+      driftCheckRef.current = null;
+      cumulativeLagSecRef.current = 0;
+      driftTimer = window.setInterval(() => {
+        const video = videoRef.current;
+        if (!video || cancelled) return;
+        const now = Date.now();
+        const prev = driftCheckRef.current;
+        if (prev) {
+          const wallDeltaSec = (now - prev.wallMs) / 1000;
+          const videoDeltaSec = video.currentTime - prev.videoTime;
+          cumulativeLagSecRef.current += wallDeltaSec - videoDeltaSec;
+          if (cumulativeLagSecRef.current > DRIFT_RESYNC_THRESHOLD_SEC) {
+            if (video.buffered.length) {
+              video.currentTime = video.buffered.end(video.buffered.length - 1) - 0.2;
+            }
+            cumulativeLagSecRef.current = 0;
+          }
+        }
+        driftCheckRef.current = { wallMs: now, videoTime: video.currentTime };
+      }, DRIFT_CHECK_MS);
     })().catch(() => {
       if (!cancelled) { setWhepState('error'); setErrorMsg((m) => m ?? UNREACHABLE_MSG); }
     });
@@ -125,6 +175,7 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
+      if (driftTimer) window.clearInterval(driftTimer);
       if (sessionUrl) deleteWhepSession(sessionUrl);
       pc?.close();
     };
