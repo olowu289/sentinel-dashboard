@@ -29,10 +29,6 @@ async function ptzPost(
   return resBody as Record<string, unknown>;
 }
 
-export function ptzSetHome(session: Session, deviceId: string, camera: number): Promise<Record<string, unknown>> {
-  return ptzPost(session, `/v1/towers/${encodeURIComponent(deviceId)}/ptz/set-home`, { camera });
-}
-
 /**
  * Refreshes the daemon's 4s hold-to-move safety timeout while a continuous
  * move is deliberately still held. Not a movement command — send roughly

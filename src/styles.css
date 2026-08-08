@@ -400,14 +400,6 @@ body {
   box-shadow: 0 0 0 4px rgba(140, 150, 255, .18);
 }
 
-.set-home-btn {
-  align-self: center; background: none; border: none;
-  cursor: pointer; color: #5f6673; font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px; letter-spacing: .08em; padding: 2px 8px 6px; opacity: .75;
-}
-.set-home-btn:hover:not(:disabled) { color: #cfd3da; }
-.set-home-btn:disabled { opacity: .4; cursor: not-allowed; }
-
 .zoom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .zoom-btn {
   padding: 11px 0; border-radius: 10px; text-align: center;

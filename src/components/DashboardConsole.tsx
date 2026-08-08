@@ -9,7 +9,7 @@ import { formatApiError, linkStatusLabel } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { formatZoom } from '../ptzMetrics';
-import { ptzSetHome, ptzKeepalive } from '../ptzApi';
+import { ptzKeepalive } from '../ptzApi';
 import type { RailView } from './Rail';
 import TowerFeed from './TowerFeed';
 import PtzPad, { type PanDir } from './PtzPad';
@@ -75,10 +75,7 @@ export default function DashboardConsole({
   // No busy-disable lockout on the pad/zoom anymore — the daemon's supersede
   // queue (see ptz-polish.md) makes rapid taps safe server-side, so the UI
   // just shows a pressed/active state and never goes inert while a command
-  // is in flight. settingHome still guards against double-firing the
-  // confirm dialog / duplicate set_home calls — that's a rare, deliberate
-  // single action, not the rapid-tap case this removes.
-  const [settingHome, setSettingHome] = useState(false);
+  // is in flight.
   const [ptzSpeedPct, setPtzSpeedPct] = useState(() => {
     try {
       const saved = Number(localStorage.getItem(PTZ_SPEED_KEY));
@@ -277,16 +274,6 @@ export default function DashboardConsole({
       .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`));
   }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
 
-  const setHome = useCallback(() => {
-    if (settingHome) return;
-    if (!window.confirm('Save current position as Home?')) return;
-    setSettingHome(true);
-    void ptzSetHome(session, deviceId, camNum(selectedCam?.id ?? '01'))
-      .then(() => setPtzMsg('home saved'))
-      .catch((e: unknown) => setPtzMsg(`set home failed: ${formatApiError(e)}`))
-      .finally(() => setSettingHome(false));
-  }, [session, deviceId, selectedCam, camNum, settingHome]);
-
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
@@ -422,15 +409,6 @@ export default function DashboardConsole({
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <PtzPad accent={ACCENT} size="190px" onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
             </div>
-            <button
-              type="button"
-              className="set-home-btn"
-              onClick={setHome}
-              disabled={settingHome}
-              title="Save current position as Home"
-            >
-              ⚑ SET HOME
-            </button>
             <div className="zoom-grid">
               <button
                 type="button"
