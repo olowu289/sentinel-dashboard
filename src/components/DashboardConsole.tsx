@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import type { StreamsResponse, RecordingStatus } from '@sentinel/sdk';
+import type { StatusResponse } from '../apiTypes';
+import type { Camera } from '../types';
 import { colors, font } from '../tokens';
 import { formatClockUTC1 } from '../clock';
-import { formatApiError, linkStatusLabel, openDetectionIncidentCount } from '../util';
+import { formatApiError, linkStatusLabel } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
-import { useTowerLive } from '../useTowerLive';
 import { formatZoom } from '../ptzMetrics';
 import { ptzSetHome, ptzKeepalive } from '../ptzApi';
 import type { RailView } from './Rail';
@@ -37,22 +39,29 @@ interface Props {
   view: RailView;
   onSelectView: (v: RailView) => void;
   onOpenTowerMenu: () => void;
-  /** Reports the open-detection-incident count up to FleetApp for the rail's Alerts badge. */
-  onAlertBadge?: (n: number) => void;
+  /** Which camera tile is under PTZ control — owned by FleetApp (shared
+   * with the useTowerLive instance's PTZ poll), not local state here. */
+  selectedCamId: string;
+  onSelectCamId: (id: string) => void;
+  streams: StreamsResponse | null;
+  status: StatusResponse | null;
+  connected: boolean;
+  linkError: string;
+  cameras: Camera[];
+  hlsUrls: Record<string, string>;
+  webrtcUrls: Record<string, string>;
+  recording: RecordingStatus | null;
+  setRecordingLocal: (s: RecordingStatus | null) => void;
 }
 
 export default function DashboardConsole({
-  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu, onAlertBadge,
+  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu,
+  selectedCamId, onSelectCamId, streams, status, connected, linkError, cameras,
+  hlsUrls, webrtcUrls, recording, setRecordingLocal,
 }: Props) {
   const { client, session, logout } = usePlatform();
-  const [selectedCamId, setSelectedCamId] = useState('01');
   const [aiView, setAiView] = useState<{ streamName: string; cameraLabel: string } | null>(null);
-  const {
-    streams, status, connected, linkError, cameras, alerts, hlsUrls, webrtcUrls,
-    recording, setRecordingLocal,
-  } = useTowerLive(deviceId, selectedCamId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
-  useEffect(() => { onAlertBadge?.(openDetectionIncidentCount(alerts)); }, [alerts, onAlertBadge]);
   const ngrok = session.baseUrl.includes('ngrok');
   // Hub reachability (Platform API can talk to the tower via hub) — not sensor health.
   const linkColor = connected ? colors.online : colors.offline;
@@ -98,12 +107,6 @@ export default function DashboardConsole({
   }, []);
 
   const selectedCam = cameras.find((c) => c.id === selectedCamId) ?? cameras[0];
-
-  useEffect(() => {
-    if (cameras.length && !cameras.some((c) => c.id === selectedCamId)) {
-      setSelectedCamId(cameras[0].id);
-    }
-  }, [cameras, selectedCamId]);
 
   const camNum = useCallback((id: string) => parseInt(id, 10) || 1, []);
 
@@ -357,7 +360,7 @@ export default function DashboardConsole({
               accent={ACCENT}
               spotlighted={spotlight && c.id === selectedCam?.id}
               thumb={spotlight && c.id !== selectedCam?.id}
-              onSelect={() => setSelectedCamId(c.id)}
+              onSelect={() => onSelectCamId(c.id)}
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
               hlsUrl={c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}

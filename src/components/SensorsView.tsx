@@ -1,11 +1,12 @@
 import { useMemo, useState, useEffect } from 'react';
+import type { StreamsResponse } from '@sentinel/sdk';
+import type { StatusResponse } from '../apiTypes';
 import { formatClockUTC1 } from '../clock';
 import { usePlatform } from '../platformContext';
-import { useTowerLive } from '../useTowerLive';
 import { buildSensors } from '../sensors';
 import { linkStatusLabel } from '../util';
 import { colors } from '../tokens';
-import type { Sensor } from '../types';
+import type { Camera, Sensor } from '../types';
 import type { Tower } from '../types';
 import type { RailView } from './Rail';
 
@@ -16,6 +17,11 @@ interface Props {
   view: RailView;
   onSelectView: (v: RailView) => void;
   onOpenTowerMenu: () => void;
+  status: StatusResponse | null;
+  streams: StreamsResponse | null;
+  cameras: Camera[];
+  connected: boolean;
+  linkError: string;
 }
 
 const badgeText = (s: Sensor) => (s.available === false ? 'N/A' : s.level === 'crit' ? 'ALERT' : s.level === 'warn' ? 'WARN' : 'OK');
@@ -74,14 +80,16 @@ function SensorCard({ s }: { s: Sensor }) {
 /**
  * Dedicated Sensors page (all sensors for the tower currently active on the
  * dashboard) — a real view alongside Live wall/Recordings, not a modal.
- * Mirrors RecordingsView's shape: owns its own topbar + tower switcher, and
- * pulls live data via its own useTowerLive instance (only mounted while this
- * view is selected, same lifecycle as the other top-level views).
+ * Mirrors RecordingsView's shape (own topbar + tower switcher); live data
+ * comes from FleetApp's single shared useTowerLive instance as props, not
+ * a hook call here — see useTowerLive's own comment for why.
  */
-export default function SensorsView({ towers, selectedTowerId, onSelectTower, view, onSelectView, onOpenTowerMenu }: Props) {
+export default function SensorsView({
+  towers, selectedTowerId, onSelectTower, view, onSelectView, onOpenTowerMenu,
+  status, streams, cameras, connected, linkError,
+}: Props) {
   const { session, logout } = usePlatform();
   const [now, setNow] = useState(() => Date.now());
-  const { status, streams, connected, linkError, cameras } = useTowerLive(selectedTowerId);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
 
   useEffect(() => {

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFleet } from './useFleet';
+import { useTowerLive } from './useTowerLive';
 import { usePlatform } from './platformContext';
+import { openDetectionIncidentCount } from './util';
 import type { Tower } from './types';
 import DashboardConsole from './components/DashboardConsole';
 import RecordingsView from './components/RecordingsView';
@@ -22,10 +24,10 @@ export default function FleetApp() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [view, setView] = useState<RailView>('live');
   const [now, setNow] = useState(() => Date.now());
-  /** Open detection-incident count, reported up by whichever view currently
-   * owns the live alerts feed (DashboardConsole or AlertsView), for the
-   * rail's Alerts icon badge. */
-  const [alertBadge, setAlertBadge] = useState(0);
+  /** Which camera tile is under PTZ control — lives here (not inside
+   * DashboardConsole) because useTowerLive needs it too, for the
+   * selected-camera PTZ poll below. */
+  const [selectedCamId, setSelectedCamId] = useState('01');
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -51,6 +53,20 @@ export default function FleetApp() {
   }, [towers, selectedTowerId]);
 
   const deviceLabel = selected ? selected.name : session.customerId.toUpperCase();
+
+  // One shared connection for the selected tower, used by Live wall/Sensors/
+  // Alerts alike — see useTowerLive's own comment for why this lives here
+  // instead of inside each view. PTZ position polling only runs while the
+  // Live wall is actually on screen.
+  const live = useTowerLive(selected?.id ?? '', selectedCamId, view === 'live');
+
+  useEffect(() => {
+    if (live.cameras.length && !live.cameras.some((c) => c.id === selectedCamId)) {
+      setSelectedCamId(live.cameras[0].id);
+    }
+  }, [live.cameras, selectedCamId]);
+
+  const alertBadge = useMemo(() => openDetectionIncidentCount(live.alerts), [live.alerts]);
 
   return (
     <div className="fleet-shell">
@@ -78,7 +94,17 @@ export default function FleetApp() {
             view={view}
             onSelectView={setView}
             onOpenTowerMenu={() => setDrawerOpen(true)}
-            onAlertBadge={setAlertBadge}
+            selectedCamId={selectedCamId}
+            onSelectCamId={setSelectedCamId}
+            streams={live.streams}
+            status={live.status}
+            connected={live.connected}
+            linkError={live.linkError}
+            cameras={live.cameras}
+            hlsUrls={live.hlsUrls}
+            webrtcUrls={live.webrtcUrls}
+            recording={live.recording}
+            setRecordingLocal={live.setRecordingLocal}
           />
         )}
 
@@ -103,6 +129,11 @@ export default function FleetApp() {
             view={view}
             onSelectView={setView}
             onOpenTowerMenu={() => setDrawerOpen(true)}
+            status={live.status}
+            streams={live.streams}
+            cameras={live.cameras}
+            connected={live.connected}
+            linkError={live.linkError}
           />
         )}
 
@@ -115,7 +146,9 @@ export default function FleetApp() {
             view={view}
             onSelectView={setView}
             onOpenTowerMenu={() => setDrawerOpen(true)}
-            onAlertBadge={setAlertBadge}
+            alerts={live.alerts}
+            connected={live.connected}
+            linkError={live.linkError}
           />
         )}
       </div>

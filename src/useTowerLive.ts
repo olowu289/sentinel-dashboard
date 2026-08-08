@@ -62,7 +62,18 @@ function whepUrl(baseUrl: string, deviceId: string, camera: number): string {
   return `${base}/v1/towers/${encodeURIComponent(deviceId)}/webrtc/cam${camera}/whep`;
 }
 
-export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLive {
+/**
+ * One instance of this hook now lives for as long as a tower is selected
+ * (see FleetApp) — Live wall/Sensors/Alerts all read from the same call
+ * instead of each mounting their own, so switching between them no longer
+ * shows a false "disconnected" flash while a fresh instance's first poll
+ * is in flight. Switching towers is the only time state should reset,
+ * handled by the effect below keyed on deviceId.
+ *
+ * @param ptzEnabled Gates the PTZ-position poll — only worth running while
+ *   the Live wall (the only consumer of camera az/el/zoom) is on screen.
+ */
+export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnabled = true): TowerLive {
   const enabled = !!deviceId;
   const { client, session } = usePlatform();
   const [streams, setStreams] = useState<StreamsResponse | null>(null);
@@ -72,6 +83,16 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
   const [ptz, setPtz] = useState<Record<string, { az: number; el: number; zoom: number; live: boolean }>>({});
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [recording, setRecording] = useState<RecordingStatus | null>(null);
+
+  useEffect(() => {
+    setStreams(null);
+    setStatus(null);
+    setConnected(false);
+    setLinkError('');
+    setPtz({});
+    setAlerts([]);
+    setRecording(null);
+  }, [deviceId]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -122,9 +143,10 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
     return () => { cancelled = true; clearInterval(id); };
   }, [client, deviceId, enabled]);
 
-  // PTZ: only the selected camera (was 4 cams × 2s ≈ Artemis/ngrok saturation).
+  // PTZ: only the selected camera (was 4 cams × 2s ≈ Artemis/ngrok saturation),
+  // and only while ptzEnabled (Live wall is the only view that shows az/el/zoom).
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !ptzEnabled) return;
     const cam = parseInt(selectedCamId || '01', 10) || 1;
     let cancelled = false;
     const pollPtz = async () => {
@@ -146,7 +168,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string): TowerLiv
     pollPtz();
     const id = setInterval(pollPtz, PTZ_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, [client, deviceId, enabled, selectedCamId]);
+  }, [client, deviceId, enabled, selectedCamId, ptzEnabled]);
 
   useEffect(() => {
     if (!enabled) return;

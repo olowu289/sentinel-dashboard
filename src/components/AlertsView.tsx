@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatClockUTC1, formatRelativeTime } from '../clock';
 import { usePlatform } from '../platformContext';
-import { useTowerLive } from '../useTowerLive';
-import { alertColor, linkStatusLabel, openDetectionIncidentCount } from '../util';
+import { alertColor, linkStatusLabel } from '../util';
 import { colors } from '../tokens';
 import type { AlertEvent, Tower } from '../types';
 import type { RailView } from './Rail';
@@ -14,7 +13,9 @@ interface Props {
   view: RailView;
   onSelectView: (v: RailView) => void;
   onOpenTowerMenu: () => void;
-  onAlertBadge?: (n: number) => void;
+  alerts: AlertEvent[];
+  connected: boolean;
+  linkError: string;
 }
 
 /** Detection alerts (raise/refresh/clear incidents) get a dedicated layout;
@@ -63,18 +64,16 @@ function AlertRow({ a, nowMs }: { a: AlertEvent; nowMs: number }) {
  * SensorsView/RecordingsView.
  */
 export default function AlertsView({
-  towers, selectedTowerId, onSelectTower, view, onSelectView, onOpenTowerMenu, onAlertBadge,
+  towers, selectedTowerId, onSelectTower, view, onSelectView, onOpenTowerMenu,
+  alerts, connected, linkError,
 }: Props) {
   const { session, logout } = usePlatform();
   const [now, setNow] = useState(() => Date.now());
-  const { alerts, connected, linkError } = useTowerLive(selectedTowerId);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
-
-  useEffect(() => { onAlertBadge?.(openDetectionIncidentCount(alerts)); }, [alerts, onAlertBadge]);
 
   const towerLabel = useMemo(
     () => towers.find((t) => t.id === selectedTowerId)?.name ?? selectedTowerId,
