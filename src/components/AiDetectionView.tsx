@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { decode } from '@msgpack/msgpack';
 import { colors, font } from '../tokens';
 import {
@@ -6,14 +6,20 @@ import {
 } from '../aiConfig';
 
 /**
- * Fullscreen diagnostic viewer: direct WHEP video from the Perception
- * Engine's own MediaMTX + a msgpack detection-WS overlay. Deliberately
- * "dumb" compared to LiveWebrtcVideo — no make-before-break resync, no HLS
- * fallback, no stream-starting retry probes. Does borrow LiveWebrtcVideo's
- * two known latency cures: a jitterBufferTarget hint, and (a much cheaper
- * version of its drift watchdog) a periodic seek-to-live snap instead of
- * rebuilding the session. A LAN-reachability failure on either leg surfaces
- * as a plain message, never an infinite spinner.
+ * Diagnostic viewer: direct WHEP video from the Perception Engine's own
+ * MediaMTX + a msgpack detection-WS overlay. Deliberately "dumb" compared to
+ * LiveWebrtcVideo — no make-before-break resync, no HLS fallback, no
+ * stream-starting retry probes. Does borrow LiveWebrtcVideo's two known
+ * latency cures: a jitterBufferTarget hint, and (a much cheaper version of
+ * its drift watchdog) a periodic seek-to-live snap instead of rebuilding
+ * the session. A LAN-reachability failure on either leg surfaces as a plain
+ * message, never an infinite spinner.
+ *
+ * Renders as a floating, draggable/resizable panel IN the dashboard page
+ * (not a popup window — window.open() broke config context for this view
+ * and leaked WHEP sessions on dashboard close). The dashboard behind stays
+ * fully interactive: there's no backdrop, so you can operate PTZ while
+ * watching this.
  */
 
 const ICE_SERVERS: RTCIceServer[] = [
@@ -31,6 +37,19 @@ const DEFAULT_OWNER = 'sentinel';
 const DRIFT_CHECK_MS = 10000;
 /** Cumulative lag (seconds) before we snap to the freshest buffered frame. */
 const DRIFT_RESYNC_THRESHOLD_SEC = 3;
+
+/** Default panel size as a fraction of the viewport, and the floor it can be resized down to. */
+const DEFAULT_SIZE_RATIO = 0.7;
+const MIN_WIDTH = 480;
+const MIN_HEIGHT = 270;
+
+interface PanelRect { x: number; y: number; w: number; h: number; }
+
+function defaultRect(): PanelRect {
+  const w = Math.max(MIN_WIDTH, Math.round(window.innerWidth * DEFAULT_SIZE_RATIO));
+  const h = Math.max(MIN_HEIGHT, Math.round(window.innerHeight * DEFAULT_SIZE_RATIO));
+  return { x: Math.round((window.innerWidth - w) / 2), y: Math.round((window.innerHeight - h) / 2), w, h };
+}
 
 interface Detection { bbox: [number, number, number, number]; name: string; conf: number; }
 interface DetectionBody {
@@ -76,6 +95,16 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   const [streamEngineState, setStreamEngineState] = useState<string | null>(null);
   const [detPerSec, setDetPerSec] = useState(0);
 
+  // Floating panel geometry — draggable by the header, resizable by the
+  // corner grip. Lazy-initialized once per mount (a fresh mount happens
+  // when the parent switches cameras via `key`, which resets to the
+  // default centered rect — reopening the SAME camera never remounts, so
+  // dragging/resizing persists rather than a second instance stacking).
+  const [rect, setRect] = useState<PanelRect>(defaultRect);
+  const [fullscreen, setFullscreen] = useState(false);
+  const dragRef = useRef<{ pointerX: number; pointerY: number; startX: number; startY: number } | null>(null);
+  const resizeRef = useRef<{ pointerX: number; pointerY: number; startW: number; startH: number } | null>(null);
+
   const bufferRef = useRef<DetectionBody[]>([]);
   const lastEpochRef = useRef<number | null>(null);
   const lastFrameSeqRef = useRef<number | null>(null);
@@ -90,6 +119,49 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Drag by the header — pointer-capture pattern (same one PtzPad uses):
+  // capture on the element that received pointerdown so subsequent move/up
+  // events keep arriving to it regardless of what's under the cursor.
+  const onHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (fullscreen) return;
+    // Ignore drags started on a header button (close/fullscreen).
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { pointerX: e.clientX, pointerY: e.clientY, startX: rect.x, startY: rect.y };
+  };
+  const onHeaderPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.pointerX;
+    const dy = e.clientY - drag.pointerY;
+    setRect((r) => ({
+      ...r,
+      x: Math.min(Math.max(0, drag.startX + dx), Math.max(0, window.innerWidth - r.w)),
+      y: Math.min(Math.max(0, drag.startY + dy), Math.max(0, window.innerHeight - r.h)),
+    }));
+  };
+  const endHeaderDrag = () => { dragRef.current = null; };
+
+  // Resize by the bottom-right corner grip — same pointer-capture pattern.
+  const onGripPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (fullscreen) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resizeRef.current = { pointerX: e.clientX, pointerY: e.clientY, startW: rect.w, startH: rect.h };
+  };
+  const onGripPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const resize = resizeRef.current;
+    if (!resize) return;
+    const dx = e.clientX - resize.pointerX;
+    const dy = e.clientY - resize.pointerY;
+    setRect((r) => ({
+      ...r,
+      w: Math.min(Math.max(MIN_WIDTH, resize.startW + dx), window.innerWidth - r.x),
+      h: Math.min(Math.max(MIN_HEIGHT, resize.startH + dy), window.innerHeight - r.y),
+    }));
+  };
+  const endGripResize = () => { resizeRef.current = null; };
 
   // WHEP: minimal standalone player — no drift watchdog, no HLS fallback, no retry probes.
   useEffect(() => {
@@ -343,29 +415,66 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   const whepLabel = whepState === 'open' ? 'VIDEO OK' : whepState === 'error' ? 'VIDEO ERROR' : 'VIDEO CONNECTING…';
   const fatal = whepState === 'error' && wsState === 'error';
 
+  const panelStyle = fullscreen
+    ? undefined
+    : { left: rect.x, top: rect.y, width: rect.w, height: rect.h };
+
   return (
-    <div className="ai-view-backdrop" onClick={onClose}>
-      <div className="ai-view" onClick={(e) => e.stopPropagation()}>
-        <div className="ai-view-head">
-          <span>{cameraLabel} · AI VIEW</span>
+    <div className={`ai-view-panel${fullscreen ? ' fullscreen' : ''}`} style={panelStyle}>
+      <div
+        className="ai-view-head"
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={endHeaderDrag}
+        onPointerCancel={endHeaderDrag}
+        onLostPointerCapture={endHeaderDrag}
+      >
+        <span>{cameraLabel} · AI VIEW</span>
+        <div className="ai-view-head-actions">
+          <button
+            className="ai-view-fullscreen-btn"
+            onClick={() => setFullscreen((f) => !f)}
+            aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {fullscreen ? (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 3v4a2 2 0 0 1-2 2H3M15 3v4a2 2 0 0 0 2 2h4M9 21v-4a2 2 0 0 0-2-2H3M15 21v-4a2 2 0 0 1 2-2h4" />
+              </svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9V5a2 2 0 0 1 2-2h4M21 9V5a2 2 0 0 0-2-2h-4M3 15v4a2 2 0 0 0 2 2h4M21 15v4a2 2 0 0 1-2 2h-4" />
+              </svg>
+            )}
+          </button>
           <button className="ai-view-close" onClick={onClose} aria-label="Close AI view" title="Close (Esc)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <div className="ai-view-stage">
-          <video ref={videoRef} className="ai-view-video" muted playsInline autoPlay />
-          <canvas ref={canvasRef} className="ai-view-canvas" />
-          {fatal && <div className="ai-view-error">{errorMsg ?? UNREACHABLE_MSG}</div>}
-          <div className="ai-view-status">
-            <span>{whepLabel}</span>
-            <span>{wsLabel}</span>
-            <span>{detPerSec.toFixed(0)} det/s</span>
-            {streamEngineState && <span>ENGINE {streamEngineState.toUpperCase()}</span>}
-          </div>
+      </div>
+      <div className="ai-view-stage">
+        <video ref={videoRef} className="ai-view-video" muted playsInline autoPlay />
+        <canvas ref={canvasRef} className="ai-view-canvas" />
+        {fatal && <div className="ai-view-error">{errorMsg ?? UNREACHABLE_MSG}</div>}
+        <div className="ai-view-status">
+          <span>{whepLabel}</span>
+          <span>{wsLabel}</span>
+          <span>{detPerSec.toFixed(0)} det/s</span>
+          {streamEngineState && <span>ENGINE {streamEngineState.toUpperCase()}</span>}
         </div>
       </div>
+      {!fullscreen && (
+        <div
+          className="ai-view-resize-grip"
+          onPointerDown={onGripPointerDown}
+          onPointerMove={onGripPointerMove}
+          onPointerUp={endGripResize}
+          onPointerCancel={endGripResize}
+          onLostPointerCapture={endGripResize}
+        />
+      )}
     </div>
   );
 }
