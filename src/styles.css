@@ -889,6 +889,12 @@ body {
   font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .06em;
   color: #cfd3da; pointer-events: none;
 }
+.ai-view-stats {
+  position: absolute; left: 12px; bottom: 42px; z-index: 2;
+  padding: 3px 8px; border-radius: 4px; background: rgba(6, 9, 11, .7);
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .04em; color: #9aa1ad;
+  white-space: nowrap; pointer-events: none;
+}
 .ai-view-resize-grip {
   position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; z-index: 4;
   cursor: nwse-resize; touch-action: none;

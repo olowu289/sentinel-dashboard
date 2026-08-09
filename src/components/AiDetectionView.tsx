@@ -33,10 +33,24 @@ const FRAME_SEQ_BACKWARD_JUMP = 30;
 const STREAM_STATE_POLL_MS = 5000;
 const UNREACHABLE_MSG = 'AI engine unreachable from this network';
 const DEFAULT_OWNER = 'sentinel';
-/** How often the minimal drift guard checks currentTime advance vs wall clock. */
+/** How often the drift guard checks currentTime advance vs wall clock. */
 const DRIFT_CHECK_MS = 10000;
-/** Cumulative lag (seconds) before we snap to the freshest buffered frame. */
-const DRIFT_RESYNC_THRESHOLD_SEC = 3;
+/**
+ * video.buffered is ALWAYS an empty TimeRanges when srcObject is a
+ * MediaStream (spec behavior, not a bug in this code) — a live stream has no
+ * preloaded-data concept to seek within. The old "seek to buffered.end()"
+ * snap therefore never fired; `if (video.buffered.length)` was always false.
+ * Fixed correction ladder instead: past CATCHUP_SEC, nudge playbackRate up
+ * to gradually consume the excess jitter buffer (imperceptible, standard
+ * live-latency technique); past HARD_RESYNC_SEC, playbackRate alone isn't
+ * closing the gap fast enough — tear down and renegotiate a fresh session.
+ */
+const DRIFT_CATCHUP_SEC = 2;
+const DRIFT_HARD_RESYNC_SEC = 5;
+const DRIFT_CATCHUP_RATE = 1.08;
+const STATS_POLL_MS = 2000;
+/** Rolling window size for the engine->browser detection-metadata latency average. */
+const DET_LATENCY_WINDOW = 30;
 
 /** Default panel size as a fraction of the viewport, and the floor it can be resized down to. */
 const DEFAULT_SIZE_RATIO = 0.7;
@@ -59,6 +73,13 @@ interface DetectionBody {
   source_width: number;
   source_height: number;
   detections: Detection[];
+  /**
+   * NOT part of the documented wire schema (see ai-integration.md) — every
+   * message observed from the engine omits this. Checked defensively; if it
+   * shows up in practice the detection-latency stat below picks it up
+   * automatically, but as of this writing it's never present.
+   */
+  ingest_ts_ns?: number | bigint;
 }
 
 type LinkState = 'connecting' | 'open' | 'error';
@@ -94,6 +115,11 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [streamEngineState, setStreamEngineState] = useState<string | null>(null);
   const [detPerSec, setDetPerSec] = useState(0);
+  const [statsText, setStatsText] = useState('');
+  /** Bumped to force the WHEP effect to tear down and renegotiate a fresh
+   * session — the hard-resync fallback when playbackRate catch-up alone
+   * isn't closing the gap fast enough. */
+  const [epoch, setEpoch] = useState(0);
 
   // Floating panel geometry — draggable by the header, resizable by the
   // corner grip. Lazy-initialized once per mount (a fresh mount happens
@@ -110,9 +136,20 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   const lastFrameSeqRef = useRef<number | null>(null);
   const detCountRef = useRef(0);
   const streamIdRef = useRef<string | null>(null);
-  /** Minimal drift guard state — see the WHEP effect below. */
+  /** Drift guard state — see the WHEP effect below. */
   const driftCheckRef = useRef<{ wallMs: number; videoTime: number } | null>(null);
   const cumulativeLagSecRef = useRef(0);
+  const catchingUpRef = useRef(false);
+  const snapCountRef = useRef(0);
+  /** getStats() delta-calc state, same pattern LiveWebrtcVideo uses for fps/jitterBufferMs. */
+  const prevFramesDecodedRef = useRef<number | null>(null);
+  const prevFramesAtMsRef = useRef<number | null>(null);
+  const prevBytesReceivedRef = useRef<number | null>(null);
+  const prevJitterBufferDelayRef = useRef<number | null>(null);
+  const prevJitterBufferEmittedRef = useRef<number | null>(null);
+  /** Rolling window of engine->browser detection-metadata latencies (ms), only ever
+   * populated if a message actually carries ingest_ts_ns — see DetectionBody. */
+  const detLatencySamplesRef = useRef<number[]>([]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -163,12 +200,15 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   };
   const endGripResize = () => { resizeRef.current = null; };
 
-  // WHEP: minimal standalone player — no drift watchdog, no HLS fallback, no retry probes.
+  // WHEP: minimal standalone player — no make-before-break resync, no HLS
+  // fallback, no retry probes. Does have a drift guard (below) and a stats
+  // poll for the readout in the JSX.
   useEffect(() => {
     let cancelled = false;
     let pc: RTCPeerConnection | null = null;
     let sessionUrl: string | null = null;
     let driftTimer: number | undefined;
+    let statsTimer: number | undefined;
     const timeout = window.setTimeout(() => {
       if (!cancelled) { setWhepState('error'); setErrorMsg((m) => m ?? UNREACHABLE_MSG); }
     }, CONNECT_TIMEOUT_MS);
@@ -214,14 +254,15 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
         } catch { /* not supported in this browser — fine, it's just a hint */ }
       }
 
-      // Minimal drift guard — not LiveWebrtcVideo's full make-before-break
-      // resync, just a periodic seek-to-live. WebRTC video elements normally
-      // keep tiny buffers, but with a TCP ICE candidate pair and engine-side
-      // queueing, playout can quietly fall behind; snapping straight to the
-      // freshest buffered frame is far cheaper than rebuilding the session,
-      // which is an acceptable trade for a diagnostic view.
+      // Fresh connection: reset drift/catch-up state. video.playbackRate is
+      // reset explicitly too — it's the same <video> DOM node reused across
+      // reconnects (React doesn't recreate it), so a stale 1.08 from a prior
+      // connection's catch-up would otherwise carry over silently.
       driftCheckRef.current = null;
       cumulativeLagSecRef.current = 0;
+      catchingUpRef.current = false;
+      if (videoRef.current) videoRef.current.playbackRate = 1.0;
+
       driftTimer = window.setInterval(() => {
         const video = videoRef.current;
         if (!video || cancelled) return;
@@ -230,16 +271,95 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
         if (prev) {
           const wallDeltaSec = (now - prev.wallMs) / 1000;
           const videoDeltaSec = video.currentTime - prev.videoTime;
+          const lagBefore = cumulativeLagSecRef.current;
           cumulativeLagSecRef.current += wallDeltaSec - videoDeltaSec;
-          if (cumulativeLagSecRef.current > DRIFT_RESYNC_THRESHOLD_SEC) {
-            if (video.buffered.length) {
-              video.currentTime = video.buffered.end(video.buffered.length - 1) - 0.2;
-            }
+          const lag = cumulativeLagSecRef.current;
+
+          if (lag > DRIFT_HARD_RESYNC_SEC) {
+            console.info(`[ai-view] drift hard-resync firing (lag ${lagBefore.toFixed(1)}s -> ${lag.toFixed(1)}s) — reconnecting`);
+            snapCountRef.current += 1;
             cumulativeLagSecRef.current = 0;
+            catchingUpRef.current = false;
+            video.playbackRate = 1.0;
+            setEpoch((e) => e + 1);
+            return; // effect is about to tear down; nothing else to do this tick
+          }
+          if (lag > DRIFT_CATCHUP_SEC) {
+            if (!catchingUpRef.current) {
+              console.info(`[ai-view] drift catch-up engaging (lag ${lagBefore.toFixed(1)}s -> ${lag.toFixed(1)}s) — playbackRate ${DRIFT_CATCHUP_RATE}`);
+              catchingUpRef.current = true;
+              snapCountRef.current += 1;
+            }
+            video.playbackRate = DRIFT_CATCHUP_RATE;
+          } else if (catchingUpRef.current) {
+            console.info(`[ai-view] drift caught up (lag ${lag.toFixed(1)}s) — playbackRate 1.0`);
+            catchingUpRef.current = false;
+            video.playbackRate = 1.0;
           }
         }
         driftCheckRef.current = { wallMs: now, videoTime: video.currentTime };
       }, DRIFT_CHECK_MS);
+
+      // Stats readout — same getStats()-polling shape as LiveWebrtcVideo's
+      // overlay, computing per-interval deltas rather than lifetime averages
+      // (a lifetime average of jitterBufferDelay/EmittedCount would smear an
+      // early spike across the whole session instead of showing what's
+      // happening right now).
+      statsTimer = window.setInterval(async () => {
+        if (cancelled || !pc) return;
+        try {
+          const report = await pc.getStats();
+          const stats = Array.from(report.values()) as Array<Record<string, unknown>>;
+          const inbound = stats.find((r) => r.type === 'inbound-rtp' && r.kind === 'video') as
+            | Record<string, number> | undefined;
+          if (!inbound) return;
+          const nowMs = Date.now();
+
+          let fps: number | null = null;
+          if (prevFramesDecodedRef.current != null && prevFramesAtMsRef.current != null) {
+            const dtSec = (nowMs - prevFramesAtMsRef.current) / 1000;
+            if (dtSec > 0) fps = Math.max(0, (inbound.framesDecoded - prevFramesDecodedRef.current) / dtSec);
+          }
+          prevFramesDecodedRef.current = inbound.framesDecoded ?? null;
+          prevFramesAtMsRef.current = nowMs;
+
+          let kbps: number | null = null;
+          if (prevBytesReceivedRef.current != null && typeof inbound.bytesReceived === 'number') {
+            const deltaBytes = inbound.bytesReceived - prevBytesReceivedRef.current;
+            kbps = Math.max(0, (deltaBytes * 8) / 1000 / (STATS_POLL_MS / 1000));
+          }
+          prevBytesReceivedRef.current = typeof inbound.bytesReceived === 'number' ? inbound.bytesReceived : null;
+
+          let jitterBufferMsNow: number | null = null;
+          if (
+            prevJitterBufferDelayRef.current != null && prevJitterBufferEmittedRef.current != null &&
+            typeof inbound.jitterBufferDelay === 'number' && typeof inbound.jitterBufferEmittedCount === 'number'
+          ) {
+            const deltaDelay = inbound.jitterBufferDelay - prevJitterBufferDelayRef.current;
+            const deltaEmitted = inbound.jitterBufferEmittedCount - prevJitterBufferEmittedRef.current;
+            if (deltaEmitted > 0) jitterBufferMsNow = (deltaDelay / deltaEmitted) * 1000;
+          }
+          prevJitterBufferDelayRef.current = typeof inbound.jitterBufferDelay === 'number' ? inbound.jitterBufferDelay : null;
+          prevJitterBufferEmittedRef.current = typeof inbound.jitterBufferEmittedCount === 'number' ? inbound.jitterBufferEmittedCount : null;
+
+          const jitterMs = typeof inbound.jitter === 'number' ? inbound.jitter * 1000 : null;
+          const packetsLost = typeof inbound.packetsLost === 'number' ? inbound.packetsLost : null;
+
+          const detSamples = detLatencySamplesRef.current;
+          const detLatAvgMs = detSamples.length ? detSamples.reduce((a, b) => a + b, 0) / detSamples.length : null;
+
+          setStatsText(
+            `${fps != null ? fps.toFixed(0) : '—'} fps`
+            + ` · ${kbps != null ? kbps.toFixed(0) : '—'} kbps`
+            + ` · loss ${packetsLost ?? '—'}`
+            + ` · jitter ${jitterMs != null ? jitterMs.toFixed(0) : '—'}ms`
+            + ` · buf ${jitterBufferMsNow != null ? jitterBufferMsNow.toFixed(0) : '—'}ms`
+            + ` · lag ${cumulativeLagSecRef.current.toFixed(1)}s`
+            + (detLatAvgMs != null ? ` · det-lat ${detLatAvgMs.toFixed(0)}ms` : '')
+            + ` · snaps ${snapCountRef.current}`,
+          );
+        } catch { /* ignore — try again next tick */ }
+      }, STATS_POLL_MS);
     })().catch(() => {
       if (!cancelled) { setWhepState('error'); setErrorMsg((m) => m ?? UNREACHABLE_MSG); }
     });
@@ -248,10 +368,11 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
       cancelled = true;
       window.clearTimeout(timeout);
       if (driftTimer) window.clearInterval(driftTimer);
+      if (statsTimer) window.clearInterval(statsTimer);
       if (sessionUrl) deleteWhepSession(sessionUrl);
       pc?.close();
     };
-  }, [streamName]);
+  }, [streamName, epoch]);
 
   // Resolve the stream's current stream_id, then connect the detection WS and msgpack-decode frames.
   useEffect(() => {
@@ -303,6 +424,19 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
         bufferRef.current.push(body);
         if (bufferRef.current.length > DETECTION_BUFFER_SIZE) bufferRef.current.shift();
         detCountRef.current += 1;
+
+        // Engine->browser metadata latency — only ever populated if a message
+        // actually carries ingest_ts_ns (not part of the documented schema as
+        // of this writing; see DetectionBody). Nanoseconds since epoch, so
+        // converted to ms before comparing against Date.now().
+        if (body.ingest_ts_ns != null) {
+          const ingestMs = Number(body.ingest_ts_ns) / 1e6;
+          if (Number.isFinite(ingestMs)) {
+            const samples = detLatencySamplesRef.current;
+            samples.push(Date.now() - ingestMs);
+            if (samples.length > DET_LATENCY_WINDOW) samples.shift();
+          }
+        }
       };
       socket.onclose = () => {
         if (cancelled) return;
@@ -464,6 +598,7 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
           <span>{detPerSec.toFixed(0)} det/s</span>
           {streamEngineState && <span>ENGINE {streamEngineState.toUpperCase()}</span>}
         </div>
+        {whepState === 'open' && statsText && <div className="ai-view-stats">{statsText}</div>}
       </div>
       {!fullscreen && (
         <div
