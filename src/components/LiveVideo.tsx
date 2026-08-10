@@ -16,6 +16,12 @@ interface Props {
   syncLiveTick?: number;
   /** Called on every stats sample from whichever transport is currently playing. */
   onStats?: (s: TileStats) => void;
+  /** True when whepUrl points directly at the Jetson's own MediaMTX (dashboard
+   * "local video mode") rather than the hub/platform. Connection logic is
+   * identical either way — this only changes the exhausted-retries message,
+   * since "no stream configured" is misleading for a real connectivity
+   * failure (the PC likely isn't on the camera segment). */
+  localMode?: boolean;
 }
 
 type Mode = 'webrtc' | 'hls' | 'none';
@@ -163,7 +169,7 @@ async function probeWebrtc(
  * PROBE_INTERVAL_MS, and only a confirmed-working probe swaps the tile back.
  * The previously-playing HLS stream is never torn down just to test WebRTC.
  */
-export default function LiveVideo({ hlsUrl, whepUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick, onStats }: Props) {
+export default function LiveVideo({ hlsUrl, whepUrl, apiKey, streamReady = true, ngrok = false, syncLiveTick, onStats, localMode = false }: Props) {
   const [mode, setMode] = useState<Mode>(() => initialMode(whepUrl, hlsUrl));
   const [webrtcKey, setWebrtcKey] = useState(0);
   const attemptsRef = useRef(0);
@@ -254,7 +260,9 @@ export default function LiveVideo({ hlsUrl, whepUrl, apiKey, streamReady = true,
 
   return (
     <div className="cam-video-wrap">
-      <div className="cam-note">no stream configured</div>
+      <div className="cam-note">
+        {localMode ? 'local source unreachable — switch to platform mode' : 'no stream configured'}
+      </div>
     </div>
   );
 }

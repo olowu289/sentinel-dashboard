@@ -16,6 +16,7 @@ import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
 import AiDetectionView from './AiDetectionView';
+import { loadVideoSourceMode, saveVideoSourceMode, localWhepUrl, type VideoSourceMode } from '../videoSourceMode';
 
 const ACCENT = colors.accent;
 const PTZ_PULSE_SEC = 0.2;
@@ -68,6 +69,15 @@ export default function DashboardConsole({
   const linkLabel = linkStatusLabel(connected, linkError);
 
   const [now, setNow] = useState(() => Date.now());
+  const [videoMode, setVideoMode] = useState<VideoSourceMode>(loadVideoSourceMode);
+  const isLocalVideo = videoMode === 'local';
+  const toggleVideoMode = useCallback(() => {
+    setVideoMode((m) => {
+      const next: VideoSourceMode = m === 'platform' ? 'local' : 'platform';
+      saveVideoSourceMode(next);
+      return next;
+    });
+  }, []);
   const [controlOpen, setControlOpen] = useState(true);
   const [spotlight, setSpotlight] = useState(false);
   const [ptzMsg, setPtzMsg] = useState('');
@@ -313,9 +323,23 @@ export default function DashboardConsole({
         </nav>
 
         <div className="topbar-end-group">
+          <button
+            type="button"
+            className={`video-mode-toggle${isLocalVideo ? ' is-local' : ''}`}
+            onClick={toggleVideoMode}
+            title={
+              isLocalVideo
+                ? 'Video streaming direct from the tower over the local network — click to switch back to the platform path'
+                : 'Video streaming via the platform/hub — click to switch to direct local-network video (requires being on the camera segment)'
+            }
+          >
+            <span className="video-mode-dot" />
+            {isLocalVideo ? 'LOCAL VIDEO' : 'PLATFORM VIDEO'}
+          </button>
+          <div className="topbar-divider" />
           <div className="topbar-clock">
             <div className="topbar-clock-time">{utc}</div>
-            <div className="topbar-clock-sub">UTC+1 · PLATFORM API</div>
+            <div className="topbar-clock-sub">UTC+1 · {isLocalVideo ? 'LOCAL VIDEO' : 'PLATFORM API'}</div>
           </div>
           <div className="topbar-divider" />
           <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
@@ -350,12 +374,17 @@ export default function DashboardConsole({
               onSelect={() => onSelectCamId(c.id)}
               onToggleSpotlight={() => setSpotlight((v) => !v)}
               onSnapshot={() => captureSnapshot(c.id)}
-              hlsUrl={c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined}
-              whepUrl={c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined}
+              hlsUrl={isLocalVideo ? undefined : (c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined)}
+              whepUrl={
+                isLocalVideo
+                  ? localWhepUrl(c.path)
+                  : (c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined)
+              }
               onOpenAiView={(streamName) => setAiView({ streamName, cameraLabel: c.label })}
               syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
-              apiKey={session.apiKey}
+              apiKey={isLocalVideo ? '' : session.apiKey}
               ngrok={ngrok}
+              localMode={isLocalVideo}
             />
           ))}
         </section>

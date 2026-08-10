@@ -151,6 +151,18 @@ body {
 .seg-tabs button.active { background: oklch(0.78 0.13 275); color: #0b0b10; }
 .seg-tabs button.active:hover { color: #0b0b10; }
 
+.video-mode-toggle {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  padding: 6px 11px; border-radius: 8px;
+  background: #101318; border: 1px solid rgba(255, 255, 255, .09); color: #8b929e;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .08em;
+  cursor: pointer; transition: border-color .12s, background .12s, color .12s;
+}
+.video-mode-toggle:hover { border-color: rgba(255, 255, 255, .18); color: #cfd3da; }
+.video-mode-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: #5f6673; }
+.video-mode-toggle.is-local { border-color: oklch(0.78 0.13 275 / 45%); color: #e6e8ec; }
+.video-mode-toggle.is-local .video-mode-dot { background: oklch(0.78 0.13 275); }
+
 .topbar-end-group { display: flex; align-items: center; gap: 16px; margin-left: auto; flex: none; }
 .topbar-clock { text-align: right; line-height: 1.25; }
 .topbar-clock-time { font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500; letter-spacing: .06em; color: #e6e8ec; }

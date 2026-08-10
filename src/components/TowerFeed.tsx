@@ -24,6 +24,12 @@ interface Props {
   ngrok?: boolean;
   /** When set, snap this tile to the live HLS edge (PTZ on selected camera). */
   syncLiveTick?: number;
+  /** True when whepUrl is the Jetson's own MediaMTX (dashboard "local video
+   * mode"), not the hub/platform. Deliberately NOT gated on the hub-reported
+   * camera status below — local mode's point is working even when the hub
+   * path is degraded, so this tile always attempts the direct connection and
+   * lets the WebRTC layer report its own success/failure (see LiveVideo). */
+  localMode?: boolean;
 }
 
 /** Empty while connecting — the centered "connecting…" overlay already
@@ -46,12 +52,14 @@ function telemetryText(hasSource: boolean, stats: TileStats | null): string {
  */
 export default function TowerFeed({
   camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot, onOpenAiView,
-  hlsUrl, whepUrl, apiKey, ngrok = false, syncLiveTick,
+  hlsUrl, whepUrl, apiKey, ngrok = false, syncLiveTick, localMode = false,
 }: Props) {
   const [flash, setFlash] = useState(false);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const [stats, setStats] = useState<TileStats | null>(null);
-  const streamReady = camera.status === 'ONLINE';
+  // Local mode ignores the hub-reported status entirely (see the localMode
+  // prop doc above) — it always has a source to try and always attempts it.
+  const streamReady = localMode || camera.status === 'ONLINE';
   const hasSource = !!(whepUrl || hlsUrl) && streamReady;
   const aiStreamName = aiStreamNameFor(camera.path);
 
@@ -101,6 +109,7 @@ export default function TowerFeed({
           ngrok={ngrok}
           syncLiveTick={syncLiveTick}
           onStats={setStats}
+          localMode={localMode}
         />
       )}
 
