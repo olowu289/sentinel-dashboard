@@ -125,7 +125,7 @@ export default function TowerFeed({
           {selected && <span className="feed-controlling">CONTROLLING</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>
-          {aiStreamName && <span className="mode-chip mode-chip-b">MODE B · CABLE+OVERLAY</span>}
+          {aiStreamName && <span className="mode-chip mode-chip-b">MODE B · CABLE + APPROX-SYNC</span>}
           <div className="feed-status-chip" style={{ color: statusColor }}>
             <span style={{ background: statusColor }} />
             {camera.status}
