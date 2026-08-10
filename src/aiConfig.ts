@@ -27,11 +27,13 @@ export const AI_ENGINE_WHEP_PORT = 8889;
 export const AI_WS_TOKEN = (import.meta.env.VITE_AI_WS_TOKEN as string | undefined)?.trim() || 'artemis-dev';
 
 /**
- * Cameras with a registered AI stream, keyed by Camera.path ("cam2").
+ * Cameras with a registered AI stream, keyed by Camera.path ("cam1").
  * Hardcoded for v1 — only tiles with an entry here render the AI VIEW button.
+ * cam1 (.108) is the tower camera; cam2 (.109) is ground/test and has no AI
+ * stream registered on the engine.
  */
 export const AI_STREAM_MAP: Record<string, string> = {
-  cam2: 'kallon_cam2_main',
+  cam1: 'kallon_cam1_main',
 };
 
 export function aiStreamNameFor(cameraPath: string): string | undefined {
