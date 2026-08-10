@@ -875,3 +875,48 @@ body {
   font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: .08em;
   color: #cfd3da; pointer-events: none;
 }
+
+/* ---- Mode A/B comparison chips (cam1 tile header + AI Aligned tile) ---- */
+.mode-chip {
+  display: inline-flex; align-items: center; flex: none;
+  padding: 3px 8px; border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: .08em;
+  white-space: nowrap;
+}
+.mode-chip-a { background: rgba(120, 130, 255, .18); border: 1px solid rgba(120, 130, 255, .4); color: #c3c8ff; }
+.mode-chip-b { background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); color: #9aa1ad; }
+
+/* ---- Mode A "AI Aligned View" comparison tile (cam3 slot) ---- */
+.ai-aligned-tile {
+  position: relative; width: 100%; height: 100%; min-height: 180px; overflow: hidden;
+  border-radius: 14px; border: 1px solid rgba(255, 255, 255, .08);
+  background: linear-gradient(180deg, #0c0d10 0%, #0a0b0d 100%);
+}
+.ai-aligned-off {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 24px; text-align: center;
+  background: repeating-linear-gradient(135deg, #0d1014 0 8px, #0a0c10 8px 16px);
+}
+.ai-aligned-off-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: .16em;
+  color: #8b929e;
+}
+.ai-aligned-off-sub {
+  font-size: 11px; color: #5c6373; max-width: 240px; line-height: 1.5;
+}
+.ai-aligned-toggle-btn {
+  margin-top: 4px; padding: 7px 16px; border-radius: 7px; border: 1px solid rgba(120, 130, 255, .4);
+  background: rgba(120, 130, 255, .16); color: #c3c8ff; cursor: pointer; transition: background .12s;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: .1em;
+}
+.ai-aligned-toggle-btn:hover { background: rgba(120, 130, 255, .28); }
+.ai-aligned-mode-chip { position: absolute; top: 12px; left: 13px; z-index: 3; }
+.ai-aligned-disable-btn {
+  position: absolute; top: 10px; right: 13px; z-index: 3;
+  width: 24px; height: 24px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(14, 17, 22, .8); border: 1px solid rgba(255, 255, 255, .1);
+  color: #b7bdc9; font-size: 15px; line-height: 1; cursor: pointer; transition: background .12s, color .12s;
+}
+.ai-aligned-disable-btn:hover { background: rgba(255, 90, 90, .18); color: #eef0f4; }

@@ -12,6 +12,7 @@ import { formatZoom } from '../ptzMetrics';
 import { ptzKeepalive } from '../ptzApi';
 import type { RailView } from './Rail';
 import TowerFeed from './TowerFeed';
+import AiAlignedTile from './AiAlignedTile';
 import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
@@ -409,27 +410,36 @@ export default function DashboardConsole({
             <div className="feed-loading" role="status">{linkLabel}</div>
           )}
           {cameras.map((c) => (
-            <TowerFeed
-              key={c.id}
-              camera={c}
-              selected={c.id === selectedCam?.id}
-              accent={ACCENT}
-              spotlighted={spotlight && c.id === selectedCam?.id}
-              thumb={spotlight && c.id !== selectedCam?.id}
-              onSelect={() => onSelectCamId(c.id)}
-              onToggleSpotlight={() => setSpotlight((v) => !v)}
-              onSnapshot={() => captureSnapshot(c.id)}
-              hlsUrl={isLocalVideo ? undefined : (c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined)}
-              whepUrl={
-                isLocalVideo
-                  ? localWhepUrl(c.path)
-                  : (c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined)
-              }
-              syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
-              apiKey={isLocalVideo ? '' : session.apiKey}
-              ngrok={ngrok}
-              localMode={isLocalVideo}
-            />
+            c.path === 'cam3' ? (
+              <AiAlignedTile
+                key={c.id}
+                streamName="kallon_cam1_main"
+                cameraLabel="cam1"
+                spotlightThumb={spotlight}
+              />
+            ) : (
+              <TowerFeed
+                key={c.id}
+                camera={c}
+                selected={c.id === selectedCam?.id}
+                accent={ACCENT}
+                spotlighted={spotlight && c.id === selectedCam?.id}
+                thumb={spotlight && c.id !== selectedCam?.id}
+                onSelect={() => onSelectCamId(c.id)}
+                onToggleSpotlight={() => setSpotlight((v) => !v)}
+                onSnapshot={() => captureSnapshot(c.id)}
+                hlsUrl={isLocalVideo ? undefined : (c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined)}
+                whepUrl={
+                  isLocalVideo
+                    ? localWhepUrl(c.path)
+                    : (c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined)
+                }
+                syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
+                apiKey={isLocalVideo ? '' : session.apiKey}
+                ngrok={ngrok}
+                localMode={isLocalVideo}
+              />
+            )
           ))}
         </section>
 
