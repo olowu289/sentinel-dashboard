@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { decode } from '@msgpack/msgpack';
 import { colors, font } from '../tokens';
 import {
-  aiStreamByNameUrl, aiWhepUrl, aiWsUrls, AI_WS_TOKEN, AI_ENGINE_HOST, AI_ENGINE_API_PORT,
+  aiStreamByNameUrl, aiWhepUrl, aiWsUrls, AI_WS_TOKEN, AI_ENGINE_HOST, AI_ENGINE_API_PORT, AI_VIEW_MIN_CONF,
 } from '../aiConfig';
 
 /**
@@ -115,6 +115,7 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [streamEngineState, setStreamEngineState] = useState<string | null>(null);
   const [detPerSec, setDetPerSec] = useState(0);
+  const [shownPerSec, setShownPerSec] = useState(0);
   const [statsText, setStatsText] = useState('');
   /** Bumped to force the WHEP effect to tear down and renegotiate a fresh
    * session — the hard-resync fallback when playbackRate catch-up alone
@@ -135,6 +136,7 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
   const lastEpochRef = useRef<number | null>(null);
   const lastFrameSeqRef = useRef<number | null>(null);
   const detCountRef = useRef(0);
+  const shownCountRef = useRef(0);
   const streamIdRef = useRef<string | null>(null);
   /** Drift guard state — see the WHEP effect below. */
   const driftCheckRef = useRef<{ wallMs: number; videoTime: number } | null>(null);
@@ -423,7 +425,11 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
         lastFrameSeqRef.current = body.frame_seq;
         bufferRef.current.push(body);
         if (bufferRef.current.length > DETECTION_BUFFER_SIZE) bufferRef.current.shift();
-        detCountRef.current += 1;
+        // Counts individual boxes (not messages) so det/s vs shown/s are
+        // directly comparable — "how many of the incoming detections
+        // actually survive the display filter below".
+        detCountRef.current += body.detections.length;
+        shownCountRef.current += body.detections.filter((d) => d.conf >= AI_VIEW_MIN_CONF).length;
 
         // Engine->browser metadata latency — only ever populated if a message
         // actually carries ingest_ts_ns (not part of the documented schema as
@@ -479,6 +485,8 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
       if (cancelled) return;
       setDetPerSec(detCountRef.current);
       detCountRef.current = 0;
+      setShownPerSec(shownCountRef.current);
+      shownCountRef.current = 0;
     }, 1000);
 
     return () => {
@@ -523,6 +531,7 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
             ctx.strokeStyle = colors.accentText;
             ctx.font = `600 11px ${font.mono}`;
             for (const d of latest.detections) {
+              if (d.conf < AI_VIEW_MIN_CONF) continue;
               const [x, y, w, h] = d.bbox;
               const rx = offsetX + x * sx;
               const ry = offsetY + y * sy;
@@ -596,6 +605,7 @@ export default function AiDetectionView({ streamName, cameraLabel, onClose }: Pr
           <span>{whepLabel}</span>
           <span>{wsLabel}</span>
           <span>{detPerSec.toFixed(0)} det/s</span>
+          <span>{shownPerSec.toFixed(0)} shown/s</span>
           {streamEngineState && <span>ENGINE {streamEngineState.toUpperCase()}</span>}
         </div>
         {whepState === 'open' && statsText && <div className="ai-view-stats">{statsText}</div>}

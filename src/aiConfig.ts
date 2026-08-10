@@ -36,6 +36,16 @@ export const AI_STREAM_MAP: Record<string, string> = {
   cam1: 'kallon_cam1_main',
 };
 
+/**
+ * Minimum confidence for a detection to actually be DRAWN in the AI View
+ * overlay. The engine's single-class drone-detr model fires sustained
+ * high-confidence-looking boxes on static scenes (mesh fencing etc.) at
+ * lower confidences — this is purely a display filter, independent of the
+ * tower's own tracking/alert confidence thresholds (engage_confidence /
+ * alert_confidence in ai_bridge.json), which are unaffected by this value.
+ */
+export const AI_VIEW_MIN_CONF = 0.7;
+
 export function aiStreamNameFor(cameraPath: string): string | undefined {
   return AI_STREAM_MAP[cameraPath];
 }
