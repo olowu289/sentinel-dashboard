@@ -17,6 +17,7 @@ import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
 import AiDetectionView from './AiDetectionView';
 import { loadVideoSourceMode, saveVideoSourceMode, localWhepUrl, type VideoSourceMode } from '../videoSourceMode';
+import { localPtzMove, localPtzStop, localPtzStatus, localPtzKeepalive } from '../localPtzApi';
 
 const ACCENT = colors.accent;
 const PTZ_PULSE_SEC = 0.2;
@@ -30,6 +31,8 @@ const PTZ_KEEPALIVE_MS = 2000;
  * fine pan/tilt jogging) — fast and purposeful, per design. Zoom taps keep
  * using the slider-scaled velocity below (their existing fine nudge). */
 const ZOOM_HOLD_VELOCITY = 0.8;
+/** Local-mode PTZ status poll cadence — matches useTowerLive's own PTZ_MS. */
+const LOCAL_PTZ_POLL_MS = 3000;
 
 const pad3 = (n: number) => String(((Math.round(n) % 360) + 360) % 360).padStart(3, '0');
 const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e))).padStart(2, '0');
@@ -124,15 +127,20 @@ export default function DashboardConsole({
     const cam = camNum(selectedCam?.id ?? '01');
     const p = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
     const t = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
-    return client.ptzMove(deviceId, {
+    const body = {
       camera: cam,
-      mode: 'continuous',
+      mode: 'continuous' as const,
       pan: p * ptzVelocity,
       tilt: t * ptzVelocity,
       zoom: zoomDir * zoomVelocity,
       ...(seconds !== undefined ? { seconds } : {}),
-    });
-  }, [client, deviceId, selectedCam, camNum, ptzVelocity]);
+    };
+    // Local mode routes PTZ direct to the Jetson's gateway (same body shape
+    // either way — the platform proxy just forwards this verbatim to the
+    // tower's own /api/ptz/move). Never silently falls back to the platform
+    // path on failure — see the .catch callers below.
+    return isLocalVideo ? localPtzMove(body) : client.ptzMove(deviceId, body);
+  }, [client, deviceId, selectedCam, camNum, ptzVelocity, isLocalVideo]);
 
   const stopJog = useCallback(() => {
     if (jogTimer.current !== undefined) { window.clearTimeout(jogTimer.current); jogTimer.current = undefined; }
@@ -140,10 +148,11 @@ export default function DashboardConsole({
     if (jogging.current) {
       jogging.current = false;
       bumpLiveSync();
-      void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01') });
+      const cam = camNum(selectedCam?.id ?? '01');
+      void (isLocalVideo ? localPtzStop({ camera: cam }) : client.ptzStop(deviceId, { camera: cam }));
     }
     jogDir.current = null;
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, isLocalVideo]);
 
   const panStart = useCallback((dir: PanDir) => {
     stopJog();
@@ -169,10 +178,11 @@ export default function DashboardConsole({
       // held; the actual stop is sent from panEnd/stopJog on release.
       void sendMove(dir, 0, ptzVelocity).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
       jogInterval.current = window.setInterval(() => {
-        void ptzKeepalive(session, deviceId, camNum(selectedCam?.id ?? '01')).catch(() => { /* best-effort */ });
+        const cam = camNum(selectedCam?.id ?? '01');
+        void (isLocalVideo ? localPtzKeepalive(cam) : ptzKeepalive(session, deviceId, cam)).catch(() => { /* best-effort */ });
       }, PTZ_KEEPALIVE_MS);
     }, PTZ_HOLD_MS);
-  }, [stopJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum]);
+  }, [stopJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum, isLocalVideo]);
 
   const panEnd = useCallback(() => {
     // Tap already sent a pulse on panStart; only clear hold-to-jog if still pending.
@@ -191,10 +201,11 @@ export default function DashboardConsole({
     if (zoomJogging.current) {
       zoomJogging.current = false;
       bumpLiveSync();
-      void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01') });
+      const cam = camNum(selectedCam?.id ?? '01');
+      void (isLocalVideo ? localPtzStop({ camera: cam }) : client.ptzStop(deviceId, { camera: cam }));
     }
     zoomJogDir.current = null;
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, isLocalVideo]);
 
   /** Zoom+/Zoom- are hold controls: an immediate tap pulse on press (the
    * existing small, slider-scaled nudge — unchanged), and if held past
@@ -218,10 +229,11 @@ export default function DashboardConsole({
       setPtzMsg('zoom…');
       void sendMove(null, dir, ZOOM_HOLD_VELOCITY).catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
       zoomJogInterval.current = window.setInterval(() => {
-        void ptzKeepalive(session, deviceId, camNum(selectedCam?.id ?? '01')).catch(() => { /* best-effort */ });
+        const cam = camNum(selectedCam?.id ?? '01');
+        void (isLocalVideo ? localPtzKeepalive(cam) : ptzKeepalive(session, deviceId, cam)).catch(() => { /* best-effort */ });
       }, PTZ_KEEPALIVE_MS);
     }, PTZ_HOLD_MS);
-  }, [stopZoomJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum]);
+  }, [stopZoomJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum, isLocalVideo]);
 
   const zoomEnd = useCallback(() => {
     if (zoomJogTimer.current !== undefined) {
@@ -279,10 +291,39 @@ export default function DashboardConsole({
 
   const recenter = useCallback(() => {
     bumpLiveSync();
-    void client.ptzStop(deviceId, { camera: camNum(selectedCam?.id ?? '01'), home: true })
+    const cam = camNum(selectedCam?.id ?? '01');
+    const stop = isLocalVideo ? localPtzStop({ camera: cam, home: true }) : client.ptzStop(deviceId, { camera: cam, home: true });
+    void stop
       .then(() => setPtzMsg('home ok'))
       .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`));
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync]);
+  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, isLocalVideo]);
+
+  // Local mode's own PTZ status poll — separate from useTowerLive's
+  // platform-path poll (which keeps running harmlessly in the background;
+  // it's a shared hook used by other views too, not worth threading this
+  // mode through). Same cadence as useTowerLive's PTZ_MS. Only overrides
+  // the READOUT below; cameras/az/el/zoom from useTowerLive are untouched.
+  const [localPtz, setLocalPtz] = useState<{ az: number; el: number; zoom: number; live: boolean } | null>(null);
+  useEffect(() => {
+    if (!isLocalVideo || !selectedCam) { setLocalPtz(null); return; }
+    let cancelled = false;
+    const cam = camNum(selectedCam.id);
+    const poll = async () => {
+      try {
+        const r = await localPtzStatus(cam);
+        const res = r.result ?? {};
+        const panDeg = res.pan_deg ?? (res.pan != null ? res.pan * 180 : 0);
+        const tiltDeg = res.tilt_deg ?? (res.tilt != null ? res.tilt * 45 : 0);
+        const zoomRatio = res.zoom_ratio ?? (res.zoom != null ? 1 + res.zoom * 7 : 1);
+        if (!cancelled) setLocalPtz({ az: panDeg, el: tiltDeg, zoom: zoomRatio, live: true });
+      } catch {
+        if (!cancelled) setLocalPtz(null); // camera not answering locally — readout shows "—", not stale data
+      }
+    };
+    void poll();
+    const id = window.setInterval(poll, LOCAL_PTZ_POLL_MS);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [isLocalVideo, selectedCam, camNum]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -300,6 +341,12 @@ export default function DashboardConsole({
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
   }, [stopJog, stopZoomJog]);
+
+  // Local mode's own poll overrides the readout display only — cameras/
+  // useTowerLive state is untouched (see the localPtz effect above).
+  const ptzReadout = isLocalVideo
+    ? (localPtz ?? { az: 0, el: 0, zoom: 0, live: false })
+    : { az: selectedCam?.az ?? 0, el: selectedCam?.el ?? 0, zoom: selectedCam?.zoom ?? 0, live: !!selectedCam?.ptzLive };
 
   const utc = formatClockUTC1(now);
 
@@ -411,9 +458,9 @@ export default function DashboardConsole({
             </div>
 
             <div className="readout-grid">
-              <Readout k="AZIMUTH" v={selectedCam.ptzLive ? `${pad3(selectedCam.az)}°` : '—'} />
-              <Readout k="ELEVATION" v={selectedCam.ptzLive ? `${elFmt(selectedCam.el)}°` : '—'} />
-              <Readout k="ZOOM" v={selectedCam.ptzLive ? formatZoom(selectedCam.zoom) : '—'} />
+              <Readout k="AZIMUTH" v={ptzReadout.live ? `${pad3(ptzReadout.az)}°` : '—'} />
+              <Readout k="ELEVATION" v={ptzReadout.live ? `${elFmt(ptzReadout.el)}°` : '—'} />
+              <Readout k="ZOOM" v={ptzReadout.live ? formatZoom(ptzReadout.zoom) : '—'} />
               <Readout k="STREAM" v={selectedCam.status === 'ONLINE' ? 'LIVE' : selectedCam.status} accent={selectedCam.status === 'ONLINE'} />
             </div>
 

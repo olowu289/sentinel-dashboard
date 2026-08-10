@@ -38,6 +38,7 @@ const FRIENDLY: Record<string, string> = {
   stream_starting: 'Live stream is still starting — retry shortly',
   conflict: 'Conflict with an existing resource',
   invalid_request: 'Invalid request',
+  local_unreachable: 'Local control unreachable — switch to platform mode',
 };
 
 /**
