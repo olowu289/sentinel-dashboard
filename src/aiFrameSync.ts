@@ -32,8 +32,13 @@ import type { DetectionBody, LinkState } from './aiOverlay';
 const RING_WINDOW_MS = 2000;
 /** Same convention as aiOverlay.ts's stale-buffer guard. */
 const FRAME_SEQ_BACKWARD_JUMP = 30;
-/** How many frame_seq units off a candidate can be and still count as a match. */
-const MATCH_TOLERANCE_FRAMES = 5;
+/**
+ * How many frame_seq units off a candidate can be and still count as a
+ * match. Only needs to absorb ONE inter-callback interval of drift now that
+ * the calibration re-anchors on every hit (see matchPresentedFrame) rather
+ * than one whole session's worth of accumulated drift.
+ */
+const MATCH_TOLERANCE_FRAMES = 10;
 /** Fallback path only (no rVFC): how far off in wall-clock ms a candidate can be. */
 const MATCH_TOLERANCE_MS = 300;
 const STREAM_STATE_POLL_MS = 5000;
@@ -230,6 +235,22 @@ export function connectFrameSync(streamName: string, handlers: FrameSyncHandlers
       }
       const isHit = best !== null && bestDist <= MATCH_TOLERANCE_FRAMES;
       recordOutcome(isHit);
+      if (isHit) {
+        // Re-anchor on every hit rather than freezing the offset forever.
+        // presentedFrames (WebRTC's decoded/presented frame count) and
+        // frame_seq (the detector's own frame count) are only APPROXIMATELY
+        // 1:1 in practice - the two rates drift apart by a little over time
+        // (jitter-buffer smoothing, occasional decoder frame drops/repeats),
+        // and a calibration locked once at connect time and never touched
+        // again eventually pushes every later target outside tolerance
+        // permanently, with no messages/errors to say so - it just silently
+        // stops finding matches. Treating every successful match as a fresh,
+        // tiny recalibration point keeps this tracking real drift
+        // indefinitely while staying true to "positional correlation, not
+        // latest-only": between hits, the target is still PREDICTED from the
+        // running offset, not simply "whatever's newest in the buffer".
+        calibration = { frameSeqAtCal: best!.frameSeq, presentedFramesAtCal: presentedFrames };
+      }
       return isHit ? best!.body : undefined;
     },
     matchByDelay(): DetectionBody | undefined {
