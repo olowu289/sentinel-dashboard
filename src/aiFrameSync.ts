@@ -41,6 +41,16 @@ const FRAME_SEQ_BACKWARD_JUMP = 30;
 const MATCH_TOLERANCE_FRAMES = 10;
 /** Fallback path only (no rVFC): how far off in wall-clock ms a candidate can be. */
 const MATCH_TOLERANCE_MS = 300;
+/**
+ * Consecutive misses before forcing a fresh calibration lock, independent of
+ * the WS-side reset signals (close/backward frame_seq jump). Per-hit
+ * re-anchoring (see matchPresentedFrame) handles ordinary small drift, but
+ * nothing about a WS reconnect fires if the DISRUPTION is on the video side
+ * instead - a backgrounded tab throttling rVFC callbacks, a real decoder
+ * stall, anything that makes presentedFrames jump by more than the ring can
+ * explain. Roughly 1-1.5s of misses at this stream's observed ~22-25/s rate.
+ */
+const MAX_CONSECUTIVE_MISSES_BEFORE_RECAL = 30;
 const STREAM_STATE_POLL_MS = 5000;
 const DEFAULT_OWNER = 'sentinel';
 const COUNT_TICK_MS = 1000;
@@ -101,6 +111,7 @@ export function connectFrameSync(streamName: string, handlers: FrameSyncHandlers
   let missCount = 0;
 
   let calibration: { frameSeqAtCal: number; presentedFramesAtCal: number } | null = null;
+  let consecutiveMisses = 0;
 
   const resetCalibration = () => {
     if (calibration !== null) {
@@ -250,6 +261,19 @@ export function connectFrameSync(streamName: string, handlers: FrameSyncHandlers
         // latest-only": between hits, the target is still PREDICTED from the
         // running offset, not simply "whatever's newest in the buffer".
         calibration = { frameSeqAtCal: best!.frameSeq, presentedFramesAtCal: presentedFrames };
+        consecutiveMisses = 0;
+      } else {
+        consecutiveMisses += 1;
+        if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES_BEFORE_RECAL) {
+          // Per-hit re-anchoring only self-corrects small drift. A run this
+          // long means the calibration itself is stale for some reason the
+          // WS-side reset signals never saw (e.g. a backgrounded tab
+          // throttling rVFC, then presentedFrames jumping on resume) - drop
+          // it and re-lock fresh against the ring's live edge next call,
+          // same as a brand-new connection would.
+          consecutiveMisses = 0;
+          resetCalibration();
+        }
       }
       return isHit ? best!.body : undefined;
     },
