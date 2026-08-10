@@ -15,7 +15,6 @@ import TowerFeed from './TowerFeed';
 import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
-import AiDetectionView from './AiDetectionView';
 import { loadVideoSourceMode, saveVideoSourceMode, localWhepUrl, type VideoSourceMode } from '../videoSourceMode';
 import { localPtzMove, localPtzStop, localPtzStatus, localPtzKeepalive } from '../localPtzApi';
 
@@ -64,7 +63,6 @@ export default function DashboardConsole({
   hlsUrls, webrtcUrls, recording, setRecordingLocal,
 }: Props) {
   const { client, session, logout } = usePlatform();
-  const [aiView, setAiView] = useState<{ streamName: string; cameraLabel: string } | null>(null);
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
   const ngrok = session.baseUrl.includes('ngrok');
   // Hub reachability (Platform API can talk to the tower via hub) — not sensor health.
@@ -427,7 +425,6 @@ export default function DashboardConsole({
                   ? localWhepUrl(c.path)
                   : (c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined)
               }
-              onOpenAiView={(streamName) => setAiView({ streamName, cameraLabel: c.label })}
               syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
               apiKey={isLocalVideo ? '' : session.apiKey}
               ngrok={ngrok}
@@ -522,15 +519,6 @@ export default function DashboardConsole({
           </aside>
         )}
       </main>
-
-      {aiView && (
-        <AiDetectionView
-          key={aiView.streamName}
-          streamName={aiView.streamName}
-          cameraLabel={aiView.cameraLabel}
-          onClose={() => setAiView(null)}
-        />
-      )}
     </div>
   );
 }

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Camera } from '../types';
 import { colors, font } from '../tokens';
 import type { TileStats } from '../liveStats';
 import LiveVideo from './LiveVideo';
+import AiOverlayCanvas from './AiOverlayCanvas';
 import { aiStreamNameFor } from '../aiConfig';
 
 interface Props {
@@ -14,8 +15,6 @@ interface Props {
   onSelect: () => void;
   onToggleSpotlight: () => void;
   onSnapshot: () => Promise<string | null>;
-  /** Opens the fullscreen AI detection viewer for this tile's registered AI stream. */
-  onOpenAiView?: (streamName: string) => void;
   /** Platform API HLS playlist URL — compatibility fallback */
   hlsUrl?: string;
   /** Platform API WHEP create-session URL — tried first, sub-second latency */
@@ -51,12 +50,14 @@ function telemetryText(hasSource: boolean, stats: TileStats | null): string {
  * the global recording flag.
  */
 export default function TowerFeed({
-  camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot, onOpenAiView,
+  camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot,
   hlsUrl, whepUrl, apiKey, ngrok = false, syncLiveTick, localMode = false,
 }: Props) {
   const [flash, setFlash] = useState(false);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const [stats, setStats] = useState<TileStats | null>(null);
+  const [aiOverlayOn, setAiOverlayOn] = useState(false);
+  const tileRef = useRef<HTMLDivElement>(null);
   // Local mode ignores the hub-reported status entirely (see the localMode
   // prop doc above) — it always has a source to try and always attempts it.
   const streamReady = localMode || camera.status === 'ONLINE';
@@ -81,6 +82,7 @@ export default function TowerFeed({
 
   return (
     <div
+      ref={tileRef}
       className={feedClass}
       onClick={onSelect}
       style={{
@@ -112,6 +114,8 @@ export default function TowerFeed({
           localMode={localMode}
         />
       )}
+
+      {aiOverlayOn && aiStreamName && <AiOverlayCanvas streamName={aiStreamName} containerRef={tileRef} />}
 
       <div className="feed-scrim" />
 
@@ -161,12 +165,13 @@ export default function TowerFeed({
             </svg>
           </button>
 
-          {aiStreamName && onOpenAiView && (
+          {aiStreamName && (
             <button
               className="feed-action-btn feed-ai-btn"
-              onClick={() => onOpenAiView(aiStreamName)}
-              aria-label="Open AI detection view"
-              title="AI View"
+              onClick={() => setAiOverlayOn((v) => !v)}
+              aria-pressed={aiOverlayOn}
+              aria-label={aiOverlayOn ? 'Hide AI detection overlay' : 'Show AI detection overlay'}
+              title="AI detection overlay"
             >
               AI
             </button>
