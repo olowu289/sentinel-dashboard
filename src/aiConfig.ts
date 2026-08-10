@@ -44,7 +44,7 @@ export const AI_STREAM_MAP: Record<string, string> = {
  * tower's own tracking/alert confidence thresholds (engage_confidence /
  * alert_confidence in ai_bridge.json), which are unaffected by this value.
  */
-export const AI_VIEW_MIN_CONF = 0.7;
+export const AI_VIEW_MIN_CONF = 0.5;
 
 export function aiStreamNameFor(cameraPath: string): string | undefined {
   return AI_STREAM_MAP[cameraPath];
