@@ -9,7 +9,8 @@
  */
 const RAW_HOST = (import.meta.env.VITE_AI_ENGINE_HOST as string | undefined)?.trim() || '192.168.1.236';
 
-/** Engine LAN host, no protocol/port. */
+/** Engine LAN host, no protocol/port. Drives WHEP VIDEO only (aiWhepUrl) —
+ * see AI_DETECTION_BASE_URL for the (separately switchable) detection source. */
 export const AI_ENGINE_HOST = RAW_HOST.replace(/\/$/, '');
 
 /** Perception Engine REST + detection-WS port. */
@@ -17,6 +18,25 @@ export const AI_ENGINE_API_PORT = 7788;
 
 /** Engine's own MediaMTX WHEP port (separate from the SRT ingest port). */
 export const AI_ENGINE_WHEP_PORT = 8889;
+
+/**
+ * Detection source (REST stream-resolve + WS) — deliberately a SEPARATE knob
+ * from AI_ENGINE_HOST/AI_ENGINE_WHEP_PORT above, even though it defaults to
+ * pointing at the same host:port. AI_ENGINE_HOST also drives WHEP video
+ * (aiWhepUrl), and detections vs. video are genuinely independent concerns:
+ * infra/tools/local_detect.py can serve byte-compatible detections (same WS
+ * URL shape, subprotocol, msgpack schema) from an operator's own PC without
+ * also serving video, so switching JUST the detection source must not
+ * require - or accidentally break - the video path. One override:
+ * VITE_AI_DETECTION_BASE_URL (e.g. "http://192.168.10.20:7789" to point at
+ * local_detect.py's serve_ws mode instead of the real engine's :7788) - flip
+ * it back to unset (or the engine's own http://<AI_ENGINE_HOST>:7788) to
+ * switch back. Nothing downstream (AiOverlayCanvas, AiFrameSyncOverlay) needs
+ * to change - both just call aiStreamByNameUrl/aiWsUrls below.
+ */
+export const AI_DETECTION_BASE_URL =
+  (import.meta.env.VITE_AI_DETECTION_BASE_URL as string | undefined)?.trim().replace(/\/$/, '')
+  || `http://${AI_ENGINE_HOST}:${AI_ENGINE_API_PORT}`;
 
 /**
  * Dev-default WS subprotocol token, per client.html findings (Phase 0).
@@ -55,7 +75,12 @@ export function aiWhepUrl(streamName: string): string {
 }
 
 export function aiStreamByNameUrl(streamName: string): string {
-  return `http://${AI_ENGINE_HOST}:${AI_ENGINE_API_PORT}/v1/streams/by-name/${encodeURIComponent(streamName)}`;
+  return `${AI_DETECTION_BASE_URL}/v1/streams/by-name/${encodeURIComponent(streamName)}`;
+}
+
+/** GET .../v1/streams/{id} — engine-state poll, see AiOverlayCanvas/AiFrameSyncOverlay. */
+export function aiStreamStateUrl(streamId: string): string {
+  return `${AI_DETECTION_BASE_URL}/v1/streams/${encodeURIComponent(streamId)}`;
 }
 
 /**
@@ -63,10 +88,11 @@ export function aiStreamByNameUrl(streamName: string): string {
  * the engine's own reference UI) uses /v1/ws; the standalone protocol doc
  * also settled on /v1/ws after an earlier draft assumed /ws — kept as a
  * fallback in case a given engine build still serves the old path.
+ * Derives from AI_DETECTION_BASE_URL (http://...), not AI_ENGINE_HOST
+ * directly, so switching detection source doesn't need its own http->ws
+ * rewrite at every call site.
  */
 export function aiWsUrls(): string[] {
-  return [
-    `ws://${AI_ENGINE_HOST}:${AI_ENGINE_API_PORT}/v1/ws`,
-    `ws://${AI_ENGINE_HOST}:${AI_ENGINE_API_PORT}/ws`,
-  ];
+  const wsBase = AI_DETECTION_BASE_URL.replace(/^http/, 'ws');
+  return [`${wsBase}/v1/ws`, `${wsBase}/ws`];
 }

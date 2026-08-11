@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack';
-import { aiStreamByNameUrl, AI_ENGINE_HOST, AI_ENGINE_API_PORT, AI_WS_TOKEN, AI_VIEW_MIN_CONF, aiWsUrls } from './aiConfig';
+import { aiStreamByNameUrl, aiStreamStateUrl, AI_WS_TOKEN, AI_VIEW_MIN_CONF, aiWsUrls } from './aiConfig';
 
 /**
  * Detection-overlay engine, extracted out of the old fullscreen AiDetectionView
@@ -131,7 +131,7 @@ export function connectAiOverlay(streamName: string, handlers: AiOverlayHandlers
 
       const pollState = async () => {
         try {
-          const r = await fetch(`http://${AI_ENGINE_HOST}:${AI_ENGINE_API_PORT}/v1/streams/${data.stream_id}`, {
+          const r = await fetch(aiStreamStateUrl(data.stream_id), {
             headers: { 'X-Owner': DEFAULT_OWNER },
           });
           if (r.ok) {
