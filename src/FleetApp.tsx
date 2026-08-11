@@ -13,6 +13,7 @@ import TowerMenu from './components/TowerMenu';
 import Rail, { type RailView } from './components/Rail';
 import TargetCueBanner from './components/TargetCueBanner';
 import AiDetectionBanner from './components/AiDetectionBanner';
+import AiTrackingBanner from './components/AiTrackingBanner';
 
 /** Grace period past the alert's own hold_seconds before the banner clears —
  * covers network/clock skew between when the tower actually armed its hold
@@ -85,6 +86,7 @@ export default function FleetApp() {
 
   return (
     <div className="fleet-shell">
+      <AiTrackingBanner />
       <AiDetectionBanner pushDown={cueActive} />
       {cueActive && cue && (
         <TargetCueBanner originLabel={cue.origin} towerLabel={cueTowerLabel} camera={cue.camera} />

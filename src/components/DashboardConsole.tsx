@@ -18,6 +18,8 @@ import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
 import { loadVideoSourceMode, saveVideoSourceMode, localWhepUrl, type VideoSourceMode } from '../videoSourceMode';
 import { localPtzMove, localPtzStop, localPtzStatus, localPtzKeepalive } from '../localPtzApi';
+import { subscribeAiTracking, setAiTrackingArmed } from '../aiTrackingState';
+import type { AiTrackingState } from '../aiTrackingApi';
 
 const ACCENT = colors.accent;
 const PTZ_PULSE_SEC = 0.2;
@@ -104,6 +106,21 @@ export default function DashboardConsole({
   const [spotlight, setSpotlight] = useState(false);
   const [ptzMsg, setPtzMsg] = useState('');
   const [recBusy, setRecBusy] = useState(false);
+  const [aiTracking, setAiTracking] = useState<AiTrackingState>({ armed: false, engine_connected: false, tracking_capable: false });
+  const [aiTrackingBusy, setAiTrackingBusy] = useState(false);
+  useEffect(() => subscribeAiTracking((s) => setAiTracking(s)), []);
+  const toggleAiTracking = useCallback(async () => {
+    if (aiTrackingBusy) return;
+    setAiTrackingBusy(true);
+    try {
+      await setAiTrackingArmed(!aiTracking.armed);
+      setPtzMsg(aiTracking.armed ? 'AI tracking disarmed' : 'AI tracking ARMED');
+    } catch (e) {
+      setPtzMsg(`AI tracking failed: ${formatApiError(e)}`);
+    } finally {
+      setAiTrackingBusy(false);
+    }
+  }, [aiTracking.armed, aiTrackingBusy]);
   // No busy-disable lockout on the pad/zoom anymore — the daemon's supersede
   // queue (see ptz-polish.md) makes rapid taps safe server-side, so the UI
   // just shows a pressed/active state and never goes inert while a command
@@ -521,6 +538,31 @@ export default function DashboardConsole({
                 {recBusy ? '…' : recording?.enabled ? 'ARMED' : 'OFF'}
               </span>
             </button>
+
+            <button
+              type="button"
+              className={`rec-row ai-track-row${aiTracking.armed ? ' armed' : ''}`}
+              disabled={aiTrackingBusy || (!aiTracking.armed && (!aiTracking.tracking_capable || !aiTracking.engine_connected))}
+              title={
+                !aiTracking.tracking_capable ? 'This tower is not provisioned for AI tracking'
+                : !aiTracking.armed && !aiTracking.engine_connected ? 'Detection engine not connected — cannot arm'
+                : aiTracking.armed ? 'Disarm autonomous AI tracking' : 'Arm autonomous AI tracking'
+              }
+              onClick={() => void toggleAiTracking()}
+            >
+              <span className="rec-row-left">
+                <span className="rec-row-dot" />
+                AI Tracking
+              </span>
+              <span className="rec-row-state">
+                {aiTrackingBusy ? '…' : aiTracking.armed ? 'ARMED' : 'OFF'}
+              </span>
+            </button>
+            {!aiTracking.armed && aiTracking.tracking_capable && !aiTracking.engine_connected && (
+              <div style={{ marginTop: -6, fontFamily: font.mono, fontSize: 9, color: colors.textCaption }}>
+                detection engine not connected
+              </div>
+            )}
 
             <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textCaption }}>{ptzMsg}</div>
             <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
