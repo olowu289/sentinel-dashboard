@@ -5,7 +5,7 @@ import type { StatusResponse } from '../apiTypes';
 import type { Camera } from '../types';
 import { colors, font } from '../tokens';
 import { formatClockUTC1 } from '../clock';
-import { formatApiError, linkStatusLabel } from '../util';
+import { errCode, formatApiError, linkStatusLabel } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
 import { formatZoom } from '../ptzMetrics';
@@ -33,6 +33,26 @@ const PTZ_KEEPALIVE_MS = 2000;
 const ZOOM_HOLD_VELOCITY = 0.8;
 /** Local-mode PTZ status poll cadence — matches useTowerLive's own PTZ_MS. */
 const LOCAL_PTZ_POLL_MS = 3000;
+
+/** True for "superseded" — the daemon's normal, by-design outcome when a
+ * newer PTZ command already replaced this one (rapid taps/direction
+ * changes on the pad — see kallon_ptz_daemon.py's CameraQueue). Not a
+ * failure: distinct from a real tower_error, never shown in red. */
+function isSupersededError(e: unknown): boolean {
+  return errCode(e) === 'superseded';
+}
+
+/** Axis names the daemon had to clamp into the camera's real ONVIF range
+ * (pan/tilt -1..1, zoom 0..1/-1..1 — see kallon_ptz_daemon.py's
+ * PAN_TILT_RANGE/ZOOM_ABS_RANGE/ZOOM_VEL_RANGE) rather than sending the
+ * out-of-range value through and letting ONVIF fault. Empty when the move
+ * landed on its own, well inside range. */
+function ptzClampedAxes(res: unknown): string[] {
+  const result = (res as { result?: { clamped?: boolean; clamped_axes?: { axis: string }[] } } | null | undefined)
+    ?.result;
+  if (!result?.clamped) return [];
+  return (result.clamped_axes ?? []).map((a) => a.axis);
+}
 
 const pad3 = (n: number) => String(((Math.round(n) % 360) + 360) % 360).padStart(3, '0');
 const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e))).padStart(2, '0');
@@ -164,8 +184,11 @@ export default function DashboardConsole({
     // tap pulse is unchanged: a small, self-contained bounded move — untouched
     // regardless of whether the press turns into a hold.
     void sendMove(dir, 0, ptzVelocity, PTZ_PULSE_SEC)
-      .then(() => setPtzMsg(`ptz ${dir}`))
-      .catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
+      .then((res) => {
+        const axes = ptzClampedAxes(res);
+        setPtzMsg(axes.length ? `${axes.join('/')} at limit` : `ptz ${dir}`);
+      })
+      .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? `ptz ${dir} (busy)` : `move failed: ${formatApiError(e)}`));
     jogTimer.current = window.setTimeout(() => {
       jogTimer.current = undefined;
       jogging.current = true;
@@ -175,7 +198,12 @@ export default function DashboardConsole({
       // pulses — that was the stutter). A keepalive every PTZ_KEEPALIVE_MS
       // refreshes the daemon's 4s safety timeout for as long as this is
       // held; the actual stop is sent from panEnd/stopJog on release.
-      void sendMove(dir, 0, ptzVelocity).catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
+      void sendMove(dir, 0, ptzVelocity)
+        .then((res) => {
+          const axes = ptzClampedAxes(res);
+          if (axes.length) setPtzMsg(`${axes.join('/')} at limit`);
+        })
+        .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? `ptz ${dir} (busy)` : `move failed: ${formatApiError(e)}`));
       jogInterval.current = window.setInterval(() => {
         const cam = camNum(selectedCam?.id ?? '01');
         void (isLocalVideo ? localPtzKeepalive(cam) : ptzKeepalive(session, deviceId, cam)).catch(() => { /* best-effort */ });
@@ -219,14 +247,21 @@ export default function DashboardConsole({
     setPtzMsg(dir > 0 ? 'zoom in…' : 'zoom out…');
     zoomJogDir.current = dir;
     void sendMove(null, dir, ptzVelocity, PTZ_PULSE_SEC)
-      .then(() => setPtzMsg(dir > 0 ? 'zoom in' : 'zoom out'))
-      .catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
+      .then((res) => {
+        const axes = ptzClampedAxes(res);
+        setPtzMsg(axes.length ? 'zoom at limit' : dir > 0 ? 'zoom in' : 'zoom out');
+      })
+      .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? 'zoom (busy)' : `zoom failed: ${formatApiError(e)}`));
     zoomJogTimer.current = window.setTimeout(() => {
       zoomJogTimer.current = undefined;
       zoomJogging.current = true;
       bumpLiveSync();
       setPtzMsg('zoom…');
-      void sendMove(null, dir, ZOOM_HOLD_VELOCITY).catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
+      void sendMove(null, dir, ZOOM_HOLD_VELOCITY)
+        .then((res) => {
+          if (ptzClampedAxes(res).length) setPtzMsg('zoom at limit');
+        })
+        .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? 'zoom (busy)' : `zoom failed: ${formatApiError(e)}`));
       zoomJogInterval.current = window.setInterval(() => {
         const cam = camNum(selectedCam?.id ?? '01');
         void (isLocalVideo ? localPtzKeepalive(cam) : ptzKeepalive(session, deviceId, cam)).catch(() => { /* best-effort */ });
@@ -294,7 +329,7 @@ export default function DashboardConsole({
     const stop = isLocalVideo ? localPtzStop({ camera: cam, home: true }) : client.ptzStop(deviceId, { camera: cam, home: true });
     void stop
       .then(() => setPtzMsg('home ok'))
-      .catch((e: unknown) => setPtzMsg(`home failed: ${formatApiError(e)}`));
+      .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? 'home (busy)' : `home failed: ${formatApiError(e)}`));
   }, [client, deviceId, selectedCam, camNum, bumpLiveSync, isLocalVideo]);
 
   // Local mode's own PTZ status poll — separate from useTowerLive's
