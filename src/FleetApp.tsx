@@ -11,6 +11,13 @@ import AlertsView from './components/AlertsView';
 import TowerDrawer from './components/TowerDrawer';
 import TowerMenu from './components/TowerMenu';
 import Rail, { type RailView } from './components/Rail';
+import TargetCueBanner from './components/TargetCueBanner';
+import AiDetectionBanner from './components/AiDetectionBanner';
+
+/** Grace period past the alert's own hold_seconds before the banner clears —
+ * covers network/clock skew between when the tower actually armed its hold
+ * timer and when this alert was received here. */
+const TARGET_CUE_GRACE_MS = 2000;
 
 function initials(label: string): string {
   const letters = label.replace(/[^a-zA-Z]/g, '');
@@ -68,8 +75,20 @@ export default function FleetApp() {
 
   const alertBadge = useMemo(() => openDetectionIncidentCount(live.alerts), [live.alerts]);
 
+  // Cross-tower on purpose (see TargetCueAlert in useTowerLive.ts) — fires
+  // regardless of which tower is currently selected. `now` already ticks
+  // every second for the clock elsewhere in this component, so expiry just
+  // falls out of that same re-render rather than needing its own timer.
+  const cue = live.targetCueAlert;
+  const cueActive = !!cue && now < cue.receivedAtMs + cue.holdSeconds * 1000 + TARGET_CUE_GRACE_MS;
+  const cueTowerLabel = cue ? (towers.find((t) => t.id === cue.deviceId)?.name ?? cue.deviceId) : '';
+
   return (
     <div className="fleet-shell">
+      <AiDetectionBanner pushDown={cueActive} />
+      {cueActive && cue && (
+        <TargetCueBanner originLabel={cue.origin} towerLabel={cueTowerLabel} camera={cue.camera} />
+      )}
       <Rail
         view={view}
         onSelectView={setView}

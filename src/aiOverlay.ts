@@ -39,6 +39,15 @@ export interface AiOverlayHandlers {
   onStreamEngineState?: (state: string | null) => void;
   /** Fired once a second with (detections seen, detections surviving AI_VIEW_MIN_CONF). */
   onCounts?: (detPerSec: number, shownPerSec: number) => void;
+  /**
+   * Fired for every detection message with the raw, unfiltered
+   * `detections[]` array — same objects the canvas draws from, before the
+   * AI_VIEW_MIN_CONF display filter. Consumers (e.g. the class-agnostic
+   * detection-alert banner) apply their own threshold rather than reusing
+   * the display one, since "draw a faint box" and "flash a page-wide alert"
+   * are different bars.
+   */
+  onDetections?: (detections: Detection[]) => void;
 }
 
 export interface AiOverlayHandle {
@@ -106,6 +115,7 @@ export function connectAiOverlay(streamName: string, handlers: AiOverlayHandlers
       lastFrameSeq = body.frame_seq;
       buffer.push(body);
       if (buffer.length > DETECTION_BUFFER_SIZE) buffer.shift();
+      handlers.onDetections?.(body.detections);
 
       // Counts individual boxes (not messages) so det/s vs shown/s are
       // directly comparable — "how many of the incoming detections

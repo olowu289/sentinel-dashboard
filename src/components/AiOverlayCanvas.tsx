@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { colors, font } from '../tokens';
 import { connectAiOverlay, drawAiOverlay, type AiOverlayHandle, type LinkState } from '../aiOverlay';
+import { reportDetections } from '../aiDetectionAlert';
 
 interface Props {
   streamName: string;
@@ -33,6 +34,7 @@ export default function AiOverlayCanvas({ streamName, containerRef }: Props) {
       onWsState: setWsState,
       onStreamEngineState: setStreamEngineState,
       onCounts: (det, shown) => { setDetPerSec(det); setShownPerSec(shown); },
+      onDetections: (detections) => reportDetections(detections, Date.now()),
     });
     handleRef.current = handle;
     return () => {
