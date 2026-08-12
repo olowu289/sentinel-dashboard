@@ -12,6 +12,7 @@ import { formatAzimuth, formatElevation, formatZoom, NO_DATA } from '../ptzMetri
 import { ptzKeepalive } from '../ptzApi';
 import type { RailView } from './Rail';
 import TowerFeed from './TowerFeed';
+import PtzAttitude from './PtzAttitude';
 import AiAlignedTile from './AiAlignedTile';
 import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
@@ -694,6 +695,17 @@ export default function DashboardConsole({
                 ZOOM +
               </button>
             </div>
+
+            {/* Where the camera is pointing. Sits under the zoom controls
+                because that is where the eye already is while driving the
+                PTZ, and it answers "which way am I looking" faster than the
+                digits in the readout grid can. */}
+            <PtzAttitude
+              az={ptzReadout?.az ?? null}
+              el={ptzReadout?.el ?? null}
+              moving={ptzReadout?.moving}
+              accent={ACCENT}
+            />
           </aside>
         )}
       </main>
