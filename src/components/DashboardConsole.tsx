@@ -8,7 +8,7 @@ import { formatClockUTC1 } from '../clock';
 import { errCode, formatApiError, linkStatusLabel } from '../util';
 import { buildSensors } from '../sensors';
 import { usePlatform } from '../platformContext';
-import { formatZoom } from '../ptzMetrics';
+import { formatAzimuth, formatElevation, formatZoom, NO_DATA } from '../ptzMetrics';
 import { ptzKeepalive } from '../ptzApi';
 import type { RailView } from './Rail';
 import TowerFeed from './TowerFeed';
@@ -34,7 +34,11 @@ const PTZ_KEEPALIVE_MS = 2000;
  * using the slider-scaled velocity below (their existing fine nudge). */
 const ZOOM_HOLD_VELOCITY = 0.8;
 /** Local-mode PTZ status poll cadence — matches useTowerLive's own PTZ_MS. */
-const LOCAL_PTZ_POLL_MS = 3000;
+// Position poll over the LAN. Fast on purpose: this is a direct hop to the
+// tower, and the daemon caches the camera's own reading for 0.4s, so this
+// cadence tracks the camera while it turns without hammering it. The
+// platform path polls at 3s and cannot do this - hence preferring the cable.
+const LOCAL_PTZ_POLL_MS = 600;
 
 /** True for "superseded" — the daemon's normal, by-design outcome when a
  * newer PTZ command already replaced this one (rapid taps/direction
@@ -56,8 +60,17 @@ function ptzClampedAxes(res: unknown): string[] {
   return (result.clamped_axes ?? []).map((a) => a.axis);
 }
 
-const pad3 = (n: number) => String(((Math.round(n) % 360) + 360) % 360).padStart(3, '0');
-const elFmt = (e: number) => (e >= 0 ? '+' : '-') + String(Math.abs(Math.round(e))).padStart(2, '0');
+
+/** One position reading. Every field is nullable on purpose: the tower
+ * omits what the camera did not report, and a dash on screen is the honest
+ * rendering of "not known". */
+interface PtzReadout {
+  az: number | null;
+  el: number | null;
+  zoom: number | null;
+  moving: boolean;
+  live: boolean;
+}
 
 interface Props {
   deviceId: string;
@@ -108,14 +121,41 @@ export default function DashboardConsole({
   const [recBusy, setRecBusy] = useState(false);
   const [aiTracking, setAiTracking] = useState<AiTrackingState>({ armed: false, engine_connected: false, tracking_capable: false });
   const [aiTrackingBusy, setAiTrackingBusy] = useState(false);
-  useEffect(() => subscribeAiTracking((s) => setAiTracking(s)), []);
+  /** Instant visual feedback on click, independent of the network round-trip
+   * (aiTrackingBusy's "…" only reads as feedback once a request is already
+   * in flight - this fires synchronously on pointerdown-equivalent so a
+   * click never LOOKS like it did nothing during that gap). Cleared on a
+   * short timeout, not tied to the request's own resolution. */
+  const [aiTrackingClickPulse, setAiTrackingClickPulse] = useState(false);
+  useEffect(() => subscribeAiTracking((s) => {
+    // eslint-disable-next-line no-console
+    console.log('[ai-tracking] poll update', s, 'button would be disabled:', !s.armed && (!s.tracking_capable || !s.engine_connected));
+    setAiTracking(s);
+  }), []);
   const toggleAiTracking = useCallback(async () => {
-    if (aiTrackingBusy) return;
+    setAiTrackingClickPulse(true);
+    window.setTimeout(() => setAiTrackingClickPulse(false), 350);
+    // eslint-disable-next-line no-console
+    console.log('[ai-tracking] toggleAiTracking() called', {
+      aiTrackingBusy, armed: aiTracking.armed, engine_connected: aiTracking.engine_connected,
+      tracking_capable: aiTracking.tracking_capable,
+    });
+    if (aiTrackingBusy) {
+      // eslint-disable-next-line no-console
+      console.log('[ai-tracking] early return: aiTrackingBusy is true');
+      return;
+    }
     setAiTrackingBusy(true);
     try {
+      // eslint-disable-next-line no-console
+      console.log('[ai-tracking] calling setAiTrackingArmed', !aiTracking.armed);
       await setAiTrackingArmed(!aiTracking.armed);
+      // eslint-disable-next-line no-console
+      console.log('[ai-tracking] setAiTrackingArmed resolved');
       setPtzMsg(aiTracking.armed ? 'AI tracking disarmed' : 'AI tracking ARMED');
     } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[ai-tracking] setAiTrackingArmed threw', e);
       setPtzMsg(`AI tracking failed: ${formatApiError(e)}`);
     } finally {
       setAiTrackingBusy(false);
@@ -354,27 +394,49 @@ export default function DashboardConsole({
   // it's a shared hook used by other views too, not worth threading this
   // mode through). Same cadence as useTowerLive's PTZ_MS. Only overrides
   // the READOUT below; cameras/az/el/zoom from useTowerLive are untouched.
-  const [localPtz, setLocalPtz] = useState<{ az: number; el: number; zoom: number; live: boolean } | null>(null);
+  // POSITION READOUT — polled straight down the cable to the tower's own
+  // gateway, not round-tripped through the platform.
+  //
+  // Two reasons, and neither is only about speed. The LAN path is a direct
+  // hop to the machine that already has the answer, so it can be polled fast
+  // enough for the number to track the camera while it turns — the platform
+  // path is a 3s poll through Railway, which shows where the camera USED to
+  // be. And it stays truthful under failure: if the cable is unreachable the
+  // readout goes blank rather than quietly aging.
+  //
+  // Runs regardless of which video source is selected — where the pixels come
+  // from has nothing to do with where the position is read from.
+  const [localPtz, setLocalPtz] = useState<PtzReadout | null>(null);
   useEffect(() => {
-    if (!isLocalVideo || !selectedCam) { setLocalPtz(null); return; }
+    if (!selectedCam) { setLocalPtz(null); return; }
     let cancelled = false;
     const cam = camNum(selectedCam.id);
     const poll = async () => {
       try {
         const r = await localPtzStatus(cam);
-        const res = r.result ?? {};
-        const panDeg = res.pan_deg ?? (res.pan != null ? res.pan * 180 : 0);
-        const tiltDeg = res.tilt_deg ?? (res.tilt != null ? res.tilt * 45 : 0);
-        const zoomRatio = res.zoom_ratio ?? (res.zoom != null ? 1 + res.zoom * 7 : 1);
-        if (!cancelled) setLocalPtz({ az: panDeg, el: tiltDeg, zoom: zoomRatio, live: true });
+        const res = (r.result ?? {}) as NonNullable<typeof r.result> & { moving?: boolean };
+        // As reported, or not at all. The tower omits these when the camera
+        // did not answer; anything invented here would be indistinguishable
+        // from a real reading on screen.
+        const az = res.pan_deg ?? null;
+        const el = res.tilt_deg ?? null;
+        const zoom = res.zoom_ratio ?? null;
+        if (!cancelled) {
+          setLocalPtz(
+            az == null && el == null && zoom == null
+              ? null
+              : { az, el, zoom, moving: res.moving === true, live: true },
+          );
+        }
       } catch {
-        if (!cancelled) setLocalPtz(null); // camera not answering locally — readout shows "—", not stale data
+        // Not on the island, or the gateway is down. Blank, never stale.
+        if (!cancelled) setLocalPtz(null);
       }
     };
     void poll();
     const id = window.setInterval(poll, LOCAL_PTZ_POLL_MS);
     return () => { cancelled = true; window.clearInterval(id); };
-  }, [isLocalVideo, selectedCam, camNum]);
+  }, [selectedCam, camNum]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -393,11 +455,18 @@ export default function DashboardConsole({
     return () => window.removeEventListener('blur', onBlur);
   }, [stopJog, stopZoomJog]);
 
-  // Local mode's own poll overrides the readout display only — cameras/
-  // useTowerLive state is untouched (see the localPtz effect above).
-  const ptzReadout = isLocalVideo
-    ? (localPtz ?? { az: 0, el: 0, zoom: 0, live: false })
-    : { az: selectedCam?.az ?? 0, el: selectedCam?.el ?? 0, zoom: selectedCam?.zoom ?? 0, live: !!selectedCam?.ptzLive };
+  // The cable reading wins when we have one; the platform poll is the
+  // fallback for operating off-site. Neither path fabricates: if both are
+  // empty this stays null and every field renders as a dash.
+  const ptzReadout: PtzReadout | null =
+    localPtz
+    ?? (selectedCam && selectedCam.ptzLive
+      ? {
+          az: selectedCam.az, el: selectedCam.el, zoom: selectedCam.zoom,
+          moving: selectedCam.ptzMoving === true, live: true,
+        }
+      : null);
+  const ptzSource = localPtz ? 'cable' : (ptzReadout ? 'platform' : null);
 
   const utc = formatClockUTC1(now);
 
@@ -517,10 +586,29 @@ export default function DashboardConsole({
             </div>
 
             <div className="readout-grid">
-              <Readout k="AZIMUTH" v={ptzReadout.live ? `${pad3(ptzReadout.az)}°` : '—'} />
-              <Readout k="ELEVATION" v={ptzReadout.live ? `${elFmt(ptzReadout.el)}°` : '—'} />
-              <Readout k="ZOOM" v={ptzReadout.live ? formatZoom(ptzReadout.zoom) : '—'} />
+              <Readout k="AZIMUTH" v={formatAzimuth(ptzReadout?.az)} />
+              <Readout k="ELEVATION" v={formatElevation(ptzReadout?.el)} />
+              <Readout k="ZOOM" v={formatZoom(ptzReadout?.zoom)} />
               <Readout k="STREAM" v={selectedCam.status === 'ONLINE' ? 'LIVE' : selectedCam.status} accent={selectedCam.status === 'ONLINE'} />
+            </div>
+
+            <div
+              style={{
+                fontFamily: font.mono, fontSize: 10, letterSpacing: '0.06em',
+                color: ptzSource ? colors.textCaption : colors.offline,
+                display: 'flex', gap: 6, alignItems: 'center',
+              }}
+              title={
+                ptzSource === 'cable' ? 'Position read directly from the tower over the LAN'
+                : ptzSource === 'platform' ? 'Position via the platform — slower, and only as fresh as its 3s poll'
+                : 'No position link — the values above are unavailable, not zero'
+              }
+            >
+              <span>POSITION</span>
+              <span style={{ color: ptzSource === 'cable' ? ACCENT : undefined }}>
+                {ptzSource === 'cable' ? 'CABLE' : ptzSource === 'platform' ? 'PLATFORM' : NO_DATA}
+              </span>
+              {ptzReadout?.moving && <span style={{ color: ACCENT }}>· SLEWING</span>}
             </div>
 
             <button
@@ -541,7 +629,7 @@ export default function DashboardConsole({
 
             <button
               type="button"
-              className={`rec-row ai-track-row${aiTracking.armed ? ' armed' : ''}`}
+              className={`rec-row ai-track-row${aiTracking.armed ? ' armed' : ''}${aiTrackingClickPulse ? ' click-pulse' : ''}`}
               disabled={aiTrackingBusy || (!aiTracking.armed && (!aiTracking.tracking_capable || !aiTracking.engine_connected))}
               title={
                 !aiTracking.tracking_capable ? 'This tower is not provisioned for AI tracking'
@@ -552,12 +640,15 @@ export default function DashboardConsole({
             >
               <span className="rec-row-left">
                 <span className="rec-row-dot" />
-                AI Tracking
+                AI TRACKING
               </span>
               <span className="rec-row-state">
                 {aiTrackingBusy ? '…' : aiTracking.armed ? 'ARMED' : 'OFF'}
               </span>
             </button>
+            <div style={{ marginTop: -4, marginBottom: 2, fontFamily: font.mono, fontSize: 9, color: colors.textCaption }}>
+              autonomous camera-follow — not the tile's "AI" overlay button
+            </div>
             {!aiTracking.armed && aiTracking.tracking_capable && !aiTracking.engine_connected && (
               <div style={{ marginTop: -6, fontFamily: font.mono, fontSize: 9, color: colors.textCaption }}>
                 detection engine not connected

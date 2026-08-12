@@ -1,38 +1,39 @@
-/** Map ONVIF GetStatus pan/tilt/zoom to operator-facing HUD values. */
-
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
-
-export interface PtzMetrics {
-  az: number;
-  el: number;
-  zoom: number;
-}
-
-/**
- * Dahua / ONVIF cameras report normalized pan & tilt in roughly −1…1 and zoom
- * in 0…1 (wide → tele). Home is typically (0, 0, 0).
+/** Formatting for the operator-facing PTZ readout.
+ *
+ * These are FORMATTERS ONLY. There is deliberately no conversion here any
+ * more: the tower reports real degrees and a real zoom ratio (the camera's
+ * own numbers - see kallon_ptz_daemon.py's _cgi_position), so the dashboard
+ * has nothing left to compute.
+ *
+ * What used to live here was an onvifToMetrics() that turned normalized
+ * ONVIF values into degrees by guessing - pan x180, tilt x30 (and x45 in a
+ * second copy elsewhere), zoom mapped to a made-up 8x range. Measured against
+ * the camera, elevation was out by 2-3x and zoom by the difference between an
+ * assumed 8x lens and a real 25x one. It is gone rather than corrected: the
+ * camera knows these numbers and there is no reason to model them here.
  */
-export function onvifToMetrics(
-  pan: number | null | undefined,
-  tilt: number | null | undefined,
-  zoom: number | null | undefined,
-): PtzMetrics | null {
-  if (pan == null && tilt == null && zoom == null) return null;
 
-  const p = pan ?? 0;
-  const t = tilt ?? 0;
-  const z = zoom ?? 0;
+/** null = the tower reported no position. Renders as an explicit dash so a
+ * missing reading can never be mistaken for a real one. */
+export const NO_DATA = '—';
 
-  // Pan 0 = home heading; ±1 ≈ full sweep either side.
-  const az = ((p * 180) + 360) % 360;
-  // Tilt 0 = level; positive = up (ONVIF y+).
-  const el = t * 30;
-  // Zoom 0 = wide; map 0…1 → 1…8× for the optical readout.
-  const zoomMag = clamp(1 + Math.max(0, z) * 7, 1, 8);
-
-  return { az, el, zoom: zoomMag };
+export function formatAzimuth(deg: number | null | undefined): string {
+  if (deg == null || !Number.isFinite(deg)) return NO_DATA;
+  const wrapped = ((Math.round(deg) % 360) + 360) % 360;
+  return `${String(wrapped).padStart(3, '0')}°`;
 }
 
-export function formatZoom(z: number): string {
-  return `${z.toFixed(1)}×`;
+/** The camera reports tilt as degrees DOWN from the horizon (90 = straight
+ * down, 0 = level, negative = above horizon). Operators read elevation as
+ * up-positive, so the sign is flipped for display: +12° means twelve degrees
+ * ABOVE the horizon. */
+export function formatElevation(degDown: number | null | undefined): string {
+  if (degDown == null || !Number.isFinite(degDown)) return NO_DATA;
+  const up = -Math.round(degDown);
+  return `${up >= 0 ? '+' : '-'}${String(Math.abs(up)).padStart(2, '0')}°`;
+}
+
+export function formatZoom(ratio: number | null | undefined): string {
+  if (ratio == null || !Number.isFinite(ratio)) return NO_DATA;
+  return `${ratio.toFixed(1)}×`;
 }

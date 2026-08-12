@@ -442,6 +442,9 @@ body {
 .ai-track-row.armed .rec-row-left,
 .ai-track-row.armed .rec-row-state { color: #c3c8ff; }
 .ai-track-row.armed .rec-row-dot { background: oklch(0.78 0.13 275); animation: pulseDot 1.4s ease-in-out infinite; }
+/* Instant click feedback, independent of the network round-trip - see
+   aiTrackingClickPulse in DashboardConsole.tsx. */
+.ai-track-row.click-pulse { box-shadow: 0 0 0 2px rgba(150, 160, 255, .55) inset; }
 
 /* ---- PTZ pad ---- */
 .pad-btn {

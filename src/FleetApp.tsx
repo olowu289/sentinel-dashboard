@@ -49,7 +49,7 @@ export default function FleetApp() {
       path: `cam${i + 1}`,
       label: `CAM ${String(i + 1).padStart(2, '0')}`,
       status: 'STANDBY' as const,
-      az: 0, el: 0, zoom: 0, ptzLive: false,
+      az: null, el: null, zoom: null, ptzLive: false,
       recording: false, recStart: null, homeAz: 0, homeEl: 0,
     })),
   })), [fleetTowers]);

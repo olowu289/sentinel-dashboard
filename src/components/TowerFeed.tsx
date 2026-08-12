@@ -4,7 +4,9 @@ import { colors, font } from '../tokens';
 import type { TileStats } from '../liveStats';
 import LiveVideo from './LiveVideo';
 import AiOverlayCanvas from './AiOverlayCanvas';
+import SingleSourceVideo from './SingleSourceVideo';
 import { aiStreamNameFor } from '../aiConfig';
+import { singleSourceAvailable } from '../singleSource';
 
 interface Props {
   camera: Camera;
@@ -57,11 +59,19 @@ export default function TowerFeed({
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const [stats, setStats] = useState<TileStats | null>(null);
   const [aiOverlayOn, setAiOverlayOn] = useState(false);
+  const [singleSourceError, setSingleSourceError] = useState<string | null>(null);
   const tileRef = useRef<HTMLDivElement>(null);
+  // SINGLE-SOURCE MODE: video comes from the local detector's annotated MJPEG
+  // instead of WHEP/HLS, and the AI button switches which of its two
+  // endpoints is shown rather than toggling a client-side canvas. The boxes
+  // are burned into the frame they were detected from, and the same detection
+  // record drives the tracker - see singleSource.ts. Off by default; the
+  // WHEP/HLS + AiOverlayCanvas path below is untouched and is the revert.
+  const singleSource = singleSourceAvailable(camera.path);
   // Local mode ignores the hub-reported status entirely (see the localMode
   // prop doc above) — it always has a source to try and always attempts it.
   const streamReady = localMode || camera.status === 'ONLINE';
-  const hasSource = !!(whepUrl || hlsUrl) && streamReady;
+  const hasSource = singleSource || (!!(whepUrl || hlsUrl) && streamReady);
   const aiStreamName = aiStreamNameFor(camera.path);
 
   const statusColor =
@@ -102,20 +112,36 @@ export default function TowerFeed({
         </div>
       )}
 
-      {(whepUrl || hlsUrl) && (
-        <LiveVideo
-          hlsUrl={hlsUrl}
-          whepUrl={whepUrl}
-          apiKey={apiKey}
-          streamReady={streamReady}
-          ngrok={ngrok}
-          syncLiveTick={syncLiveTick}
-          onStats={setStats}
-          localMode={localMode}
-        />
+      {singleSource ? (
+        <SingleSourceVideo camPath={camera.path} ai={aiOverlayOn} onError={setSingleSourceError} />
+      ) : (
+        (whepUrl || hlsUrl) && (
+          <LiveVideo
+            hlsUrl={hlsUrl}
+            whepUrl={whepUrl}
+            apiKey={apiKey}
+            streamReady={streamReady}
+            ngrok={ngrok}
+            syncLiveTick={syncLiveTick}
+            onStats={setStats}
+            localMode={localMode}
+          />
+        )
       )}
 
-      {aiOverlayOn && aiStreamName && <AiOverlayCanvas streamName={aiStreamName} containerRef={tileRef} />}
+      {/* Client-side overlay ONLY on the legacy path - in single-source mode
+          the boxes are already burned into the frame by the detector, and
+          drawing them again here would double them (and reintroduce exactly
+          the drift this replaces). */}
+      {!singleSource && aiOverlayOn && aiStreamName && (
+        <AiOverlayCanvas streamName={aiStreamName} containerRef={tileRef} />
+      )}
+
+      {singleSource && singleSourceError && (
+        <div className="cam-note" style={{ position: 'absolute', inset: 'auto 8px 8px 8px', zIndex: 3 }}>
+          {singleSourceError}
+        </div>
+      )}
 
       <div className="feed-scrim" />
 
@@ -125,7 +151,11 @@ export default function TowerFeed({
           {selected && <span className="feed-controlling">CONTROLLING</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>
-          {aiStreamName && <span className="mode-chip mode-chip-b">MODE B · CABLE + APPROX-SYNC</span>}
+          {singleSource ? (
+            <span className="mode-chip mode-chip-b">SINGLE SOURCE · CABLE + FRAME-LOCKED</span>
+          ) : (
+            aiStreamName && <span className="mode-chip mode-chip-b">MODE B · CABLE + APPROX-SYNC</span>
+          )}
           <div className="feed-status-chip" style={{ color: statusColor }}>
             <span style={{ background: statusColor }} />
             {camera.status}

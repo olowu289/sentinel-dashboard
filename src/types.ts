@@ -8,9 +8,15 @@ export interface Camera {
   mjpegUrl?: string;
   hlsUrl?: string;
   webrtcUrl?: string;
-  az: number;
-  el: number;
-  zoom: number;
+  // null means NOT KNOWN - the camera did not report a position. Never
+  // substitute 0: a readout showing "000deg" when nothing is being received
+  // is indistinguishable from a camera genuinely pointing at 0, and the
+  // operator has no way to tell they are looking at a placeholder.
+  az: number | null;
+  el: number | null;
+  zoom: number | null;
+  /** True while the camera is actually turning (reported by the camera). */
+  ptzMoving?: boolean;
   ptzLive: boolean;
   recording: boolean;
   recStart: number | null;

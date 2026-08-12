@@ -13,6 +13,26 @@ const PTZ_MS = 3000;
 const RECORDING_MS = 10000;
 const CAM_COUNT = 4;
 
+/**
+ * The most recent external (non-AI-bridge) target-cueing alert, from ANY
+ * tower on this customer's account — deliberately not filtered to the
+ * currently-selected tower, unlike `alerts` below. The SSE stream itself is
+ * already customer-scoped (see the effect below), so this needs no separate
+ * subscription; it just doesn't throw away events for towers you aren't
+ * currently looking at. Consumers decide when it's "expired" themselves
+ * (compare `receivedAtMs + holdSeconds*1000` against the current time) —
+ * this hook only ever replaces it with whatever arrived most recently.
+ */
+export interface TargetCueAlert {
+  deviceId: string;
+  camera: number;
+  origin: string;
+  label: string;
+  source: string;
+  holdSeconds: number;
+  receivedAtMs: number;
+}
+
 export interface TowerLive {
   streams: StreamsResponse | null;
   status: StatusResponse | null;
@@ -21,6 +41,7 @@ export interface TowerLive {
   linkError: string;
   cameras: Camera[];
   alerts: AlertEvent[];
+  targetCueAlert: TargetCueAlert | null;
   /** Platform HLS playlist URLs keyed by camera id ("01"…"04"). */
   hlsUrls: Record<string, string>;
   /** Platform WHEP create-session URLs keyed by camera id ("01"…"04"). */
@@ -40,9 +61,9 @@ function defaultCameras(): Camera[] {
       path: `cam${n}`,
       label: `CAM ${id}`,
       status: 'STANDBY',
-      az: 0,
-      el: 0,
-      zoom: 0,
+      az: null,
+      el: null,
+      zoom: null,
       ptzLive: false,
       recording: false,
       recStart: null,
@@ -80,8 +101,12 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [connected, setConnected] = useState(false);
   const [linkError, setLinkError] = useState('');
-  const [ptz, setPtz] = useState<Record<string, { az: number; el: number; zoom: number; live: boolean }>>({});
+  const [ptz, setPtz] = useState<Record<string, {
+    az: number | null; el: number | null; zoom: number | null;
+    moving?: boolean; live: boolean;
+  }>>({});
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
+  const [targetCueAlert, setTargetCueAlert] = useState<TargetCueAlert | null>(null);
   const [recording, setRecording] = useState<RecordingStatus | null>(null);
 
   useEffect(() => {
@@ -154,13 +179,23 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
         const r = await client.ptzStatus(deviceId, cam);
         const res = r.result ?? {};
         const id = String(cam).padStart(2, '0');
-        const panDeg = res.pan_deg ?? (res.pan != null ? res.pan * 180 : 0);
-        const tiltDeg = res.tilt_deg ?? (res.tilt != null ? res.tilt * 45 : 0);
-        const zoomRatio = res.zoom_ratio ?? (res.zoom != null ? 1 + res.zoom * 7 : 1);
+        // Taken as reported or not at all. The tower sends real degrees
+        // (the camera's own) and omits the field entirely when it has
+        // nothing - so a missing value stays missing rather than being
+        // back-filled from the normalized ONVIF number, which is what used
+        // to put a wrong-by-2-3x elevation on screen.
+        const withMoving = res as typeof res & { moving?: boolean };
+        const panDeg = res.pan_deg ?? null;
+        const tiltDeg = res.tilt_deg ?? null;
+        const zoomRatio = res.zoom_ratio ?? null;
         if (!cancelled) {
           setPtz((prev) => ({
             ...prev,
-            [id]: { az: panDeg, el: tiltDeg, zoom: zoomRatio, live: true },
+            [id]: {
+              az: panDeg, el: tiltDeg, zoom: zoomRatio,
+              moving: withMoving.moving === true,
+              live: panDeg != null || tiltDeg != null,
+            },
           }));
         }
       } catch { /* camera may be offline */ }
@@ -185,7 +220,26 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     es = new EventSource(url);
     es.onmessage = (ev) => {
       try {
-        const raw = JSON.parse(ev.data) as { device_id?: string };
+        const raw = JSON.parse(ev.data) as {
+          device_id?: string;
+          alert_type?: string;
+          details?: Record<string, unknown>;
+        };
+        // Cross-tower on purpose — checked before the per-tower filter below,
+        // so a target_cued alert from a tower you're NOT currently viewing
+        // still surfaces (see TargetCueAlert's own comment above).
+        if (raw.alert_type === 'target_cued' && raw.device_id) {
+          const d = raw.details ?? {};
+          setTargetCueAlert({
+            deviceId: raw.device_id,
+            camera: Number(d.camera) || 1,
+            origin: typeof d.origin === 'string' ? d.origin : 'unknown',
+            label: typeof d.label === 'string' ? d.label : '',
+            source: typeof d.source === 'string' ? d.source : '',
+            holdSeconds: Number(d.hold_seconds) || 0,
+            receivedAtMs: Date.now(),
+          });
+        }
         if (raw.device_id && raw.device_id !== deviceId) return;
         setAlerts((prev) => [alertToEvent(raw as Parameters<typeof alertToEvent>[0]), ...prev].slice(0, 200));
       } catch { /* ignore */ }
@@ -217,9 +271,10 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
       status: cstatus,
       hlsUrl: hls,
       webrtcUrl: whep,
-      az: pos?.az ?? 0,
-      el: pos?.el ?? 0,
-      zoom: pos?.zoom ?? 0,
+      az: pos?.az ?? null,
+      el: pos?.el ?? null,
+      zoom: pos?.zoom ?? null,
+      ptzMoving: pos?.moving === true,
       ptzLive: !!pos?.live,
       recording: recOn,
     };
@@ -239,6 +294,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     linkError,
     cameras,
     alerts,
+    targetCueAlert,
     hlsUrls,
     webrtcUrls,
     recording,
