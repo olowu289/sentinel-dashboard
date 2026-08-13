@@ -22,8 +22,18 @@ import { subscribeAiTracking, setAiTrackingArmed } from '../aiTrackingState';
 import type { AiTrackingState } from '../aiTrackingApi';
 
 const ACCENT = colors.accent;
-const PTZ_PULSE_SEC = 0.2;
-const PTZ_HOLD_MS = 180;
+/**
+ * MINIMUM PRESS. A press sends one unbounded move on pointerdown and one stop
+ * on pointerup — but an ONVIF move costs ~1.4s to reach the camera and a stop
+ * ~0.56s, so a 60ms tap would otherwise queue its stop behind a move that has
+ * not been dispatched yet and produce nothing visible. Holding the stop back
+ * to this floor guarantees a tap still travels.
+ *
+ * It is a workaround for the transport being slow, not a design preference —
+ * once jog moves off ONVIF (measured at 45-90ms on the camera's own CGI) this
+ * can drop to near zero.
+ */
+const PTZ_MIN_PRESS_MS = 260;
 const PTZ_SPEED_KEY = 'sentinel-ptz-speed';
 /** Hold-to-move keepalive cadence — well under the daemon's 4s safety
  * timeout (kallon_ptz_daemon.py), so a normal 2s tick never risks a
@@ -167,6 +177,9 @@ export default function DashboardConsole({
   const jogTimer = useRef<number | undefined>(undefined);
   const jogInterval = useRef<number | undefined>(undefined);
   const jogDir = useRef<PanDir | null>(null);
+  /** When the current press began — the stop is held back to PTZ_MIN_PRESS_MS. */
+  const pressAt = useRef(0);
+  const zoomPressAt = useRef(0);
   const jogging = useRef(false);
   // Zoom hold-to-jog — same pattern as the pan pad, independent state so pan
   // and zoom can never cross-cancel each other.
@@ -206,7 +219,12 @@ export default function DashboardConsole({
     const t = v.tilt;
     const body = {
       camera: cam,
-      mode: 'continuous' as const,
+      // "jog" is the same command with a faster transport: the daemon drives
+      // it over the camera's own CGI (~63ms to start, ~73ms to stop) instead
+      // of ONVIF (~1348ms / ~564ms), falling back to ONVIF by itself on any
+      // camera that does not speak it. A bounded pulse still goes out as
+      // "continuous" — jog is unbounded by definition.
+      mode: seconds === undefined ? ('jog' as const) : ('continuous' as const),
       pan: p * ptzVelocity,
       tilt: t * ptzVelocity,
       zoom: zoomDir * zoomVelocity,
@@ -219,9 +237,20 @@ export default function DashboardConsole({
     return localPtzMove(body);
   }, [selectedCam, camNum, ptzVelocity]);
 
-  const stopJog = useCallback(() => {
+  /** Cancels the keepalive and any pending delayed stop WITHOUT commanding
+   * the camera. Starting a new move does not need a stop first: a
+   * ContinuousMove replaces the velocity in flight (verified — reversing
+   * +0.10 to -0.10 mid-move turned the camera around promptly). Sending one
+   * anyway cost 0.56s and raced the move it preceded, because the two go out
+   * as separate concurrent requests and the daemon's stop cancels whatever is
+   * queued — including a move that arrived a few ms earlier. */
+  const clearJogTimers = useCallback(() => {
     if (jogTimer.current !== undefined) { window.clearTimeout(jogTimer.current); jogTimer.current = undefined; }
     if (jogInterval.current !== undefined) { window.clearInterval(jogInterval.current); jogInterval.current = undefined; }
+  }, []);
+
+  const stopJog = useCallback(() => {
+    clearJogTimers();
     if (jogging.current) {
       jogging.current = false;
       bumpLiveSync();
@@ -229,60 +258,57 @@ export default function DashboardConsole({
       void localPtzStop({ camera: cam });
     }
     jogDir.current = null;
-  }, [selectedCam, camNum, bumpLiveSync]);
+  }, [clearJogTimers, selectedCam, camNum, bumpLiveSync]);
 
   const panStart = useCallback((dir: PanDir) => {
-    stopJog();
+    clearJogTimers();
     bumpLiveSync();
     setPtzMsg(`ptz ${dir}…`);
     jogDir.current = dir;
-    // Fire immediately on press so the camera reacts without waiting for the
-    // hold threshold or pointer-up — the pad's own pressed/active visual
-    // (set by PtzPad itself on pointerdown) is the immediate feedback. This
-    // tap pulse is unchanged: a small, self-contained bounded move — untouched
-    // regardless of whether the press turns into a hold.
-    void sendMove(dir, 0, ptzVelocity, PTZ_PULSE_SEC)
+    jogging.current = true;
+    pressAt.current = Date.now();
+    // ONE command for the whole press. There is no tap-versus-hold split any
+    // more: the press starts an unbounded move and the release stops it, so a
+    // tap is simply a short press.
+    //
+    // The old shape fired a bounded pulse here and an unbounded move 180ms
+    // later. Those are two commands for one gesture, and the second
+    // superseded the first while it was still queued — which is exactly what
+    // "(busy)" was reporting. Measured: pulse -> SUPERSEDED, hold -> ok. It
+    // also made the camera move, stop, pause, then start again.
+    void sendMove(dir, 0, ptzVelocity)
       .then((res) => {
         const axes = ptzClampedAxes(res);
         setPtzMsg(axes.length ? `${axes.join('/')} at limit` : `ptz ${dir}`);
       })
-      .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? `ptz ${dir} (busy)` : `move failed: ${formatApiError(e)}`));
-    jogTimer.current = window.setTimeout(() => {
-      jogTimer.current = undefined;
-      jogging.current = true;
-      bumpLiveSync();
-      setPtzMsg('jog…');
-      // True continuous hold: exactly one unbounded start (no repeating
-      // pulses — that was the stutter). A keepalive every PTZ_KEEPALIVE_MS
-      // refreshes the daemon's 4s safety timeout for as long as this is
-      // held; the actual stop is sent from panEnd/stopJog on release.
-      void sendMove(dir, 0, ptzVelocity)
-        .then((res) => {
-          const axes = ptzClampedAxes(res);
-          if (axes.length) setPtzMsg(`${axes.join('/')} at limit`);
-        })
-        .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? `ptz ${dir} (busy)` : `move failed: ${formatApiError(e)}`));
-      jogInterval.current = window.setInterval(() => {
-        const cam = camNum(selectedCam?.id ?? '01');
-        void localPtzKeepalive(cam).catch(() => { /* best-effort */ });
-      }, PTZ_KEEPALIVE_MS);
-    }, PTZ_HOLD_MS);
-  }, [stopJog, sendMove, bumpLiveSync, selectedCam, camNum]);
+      .catch((e: unknown) => setPtzMsg(`move failed: ${formatApiError(e)}`));
+    // Refreshes the daemon's 4s safety timeout for as long as this is held.
+    jogInterval.current = window.setInterval(() => {
+      const cam = camNum(selectedCam?.id ?? '01');
+      void localPtzKeepalive(cam).catch(() => { /* best-effort */ });
+    }, PTZ_KEEPALIVE_MS);
+  }, [clearJogTimers, sendMove, bumpLiveSync, ptzVelocity, selectedCam, camNum]);
 
   const panEnd = useCallback(() => {
-    // Tap already sent a pulse on panStart; only clear hold-to-jog if still pending.
-    if (jogTimer.current !== undefined) {
-      window.clearTimeout(jogTimer.current);
+    // Hold the stop back to the minimum press, so a quick tap still travels
+    // (see PTZ_MIN_PRESS_MS). Longer presses stop immediately on release.
+    const held = Date.now() - pressAt.current;
+    const wait = Math.max(0, PTZ_MIN_PRESS_MS - held);
+    if (wait === 0) { stopJog(); return; }
+    if (jogTimer.current !== undefined) window.clearTimeout(jogTimer.current);
+    jogTimer.current = window.setTimeout(() => {
       jogTimer.current = undefined;
-      jogDir.current = null;
-      return;
-    }
-    stopJog();
+      stopJog();
+    }, wait);
   }, [stopJog]);
 
-  const stopZoomJog = useCallback(() => {
+  const clearZoomTimers = useCallback(() => {
     if (zoomJogTimer.current !== undefined) { window.clearTimeout(zoomJogTimer.current); zoomJogTimer.current = undefined; }
     if (zoomJogInterval.current !== undefined) { window.clearInterval(zoomJogInterval.current); zoomJogInterval.current = undefined; }
+  }, []);
+
+  const stopZoomJog = useCallback(() => {
+    clearZoomTimers();
     if (zoomJogging.current) {
       zoomJogging.current = false;
       bumpLiveSync();
@@ -290,51 +316,46 @@ export default function DashboardConsole({
       void localPtzStop({ camera: cam });
     }
     zoomJogDir.current = null;
-  }, [selectedCam, camNum, bumpLiveSync]);
+  }, [clearZoomTimers, selectedCam, camNum, bumpLiveSync]);
 
   /** Zoom+/Zoom- are hold controls: an immediate tap pulse on press (the
    * existing small, slider-scaled nudge — unchanged), and if held past
-   * PTZ_HOLD_MS, exactly ONE unbounded continuous-move start at a fixed,
+   * exactly ONE unbounded continuous-move start at a fixed,
    * fast velocity (decoupled from the drive-speed slider — that's for fine
    * pan/tilt jogging, not zoom holds), kept alive every PTZ_KEEPALIVE_MS
    * until release sends the actual stop (zoomEnd/stopZoomJog). No repeating
    * pulses — that was the stutter this fixes. */
   const zoomStart = useCallback((dir: 1 | -1) => {
-    stopZoomJog();
+    // Same one-command-per-press shape as the pad — the zoom buttons carried
+    // an identical copy of the pulse-then-hold pair, and the identical bug.
+    clearZoomTimers();
     bumpLiveSync();
     setPtzMsg(dir > 0 ? 'zoom in…' : 'zoom out…');
     zoomJogDir.current = dir;
-    void sendMove(null, dir, ptzVelocity, PTZ_PULSE_SEC)
+    zoomJogging.current = true;
+    zoomPressAt.current = Date.now();
+    void sendMove(null, dir, ZOOM_HOLD_VELOCITY)
       .then((res) => {
         const axes = ptzClampedAxes(res);
         setPtzMsg(axes.length ? 'zoom at limit' : dir > 0 ? 'zoom in' : 'zoom out');
       })
-      .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? 'zoom (busy)' : `zoom failed: ${formatApiError(e)}`));
-    zoomJogTimer.current = window.setTimeout(() => {
-      zoomJogTimer.current = undefined;
-      zoomJogging.current = true;
-      bumpLiveSync();
-      setPtzMsg('zoom…');
-      void sendMove(null, dir, ZOOM_HOLD_VELOCITY)
-        .then((res) => {
-          if (ptzClampedAxes(res).length) setPtzMsg('zoom at limit');
-        })
-        .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? 'zoom (busy)' : `zoom failed: ${formatApiError(e)}`));
-      zoomJogInterval.current = window.setInterval(() => {
-        const cam = camNum(selectedCam?.id ?? '01');
-        void localPtzKeepalive(cam).catch(() => { /* best-effort */ });
-      }, PTZ_KEEPALIVE_MS);
-    }, PTZ_HOLD_MS);
-  }, [stopZoomJog, sendMove, bumpLiveSync, selectedCam, camNum]);
+      .catch((e: unknown) => setPtzMsg(`zoom failed: ${formatApiError(e)}`));
+    zoomJogInterval.current = window.setInterval(() => {
+      const cam = camNum(selectedCam?.id ?? '01');
+      void localPtzKeepalive(cam).catch(() => { /* best-effort */ });
+    }, PTZ_KEEPALIVE_MS);
+  }, [clearZoomTimers, sendMove, bumpLiveSync, selectedCam, camNum]);
 
   const zoomEnd = useCallback(() => {
-    if (zoomJogTimer.current !== undefined) {
-      window.clearTimeout(zoomJogTimer.current);
+    // Same minimum-press floor as the pad, for the same reason.
+    const held = Date.now() - zoomPressAt.current;
+    const wait = Math.max(0, PTZ_MIN_PRESS_MS - held);
+    if (wait === 0) { stopZoomJog(); return; }
+    if (zoomJogTimer.current !== undefined) window.clearTimeout(zoomJogTimer.current);
+    zoomJogTimer.current = window.setTimeout(() => {
       zoomJogTimer.current = undefined;
-      zoomJogDir.current = null;
-      return;
-    }
-    stopZoomJog();
+      stopZoomJog();
+    }, wait);
   }, [stopZoomJog]);
 
   const captureSnapshot = useCallback(async (camId: string) => {
@@ -442,17 +463,25 @@ export default function DashboardConsole({
     return () => window.clearInterval(id);
   }, []);
 
-  useEffect(() => () => { stopJog(); stopZoomJog(); }, [stopJog, stopZoomJog]);
+  // Held in refs so the effects below can depend on NOTHING and therefore
+  // only ever run their cleanup on a real unmount. Depending on the callbacks
+  // directly is what made every render fire a stop mid-press.
+  const stopJogRef = useRef(stopJog);
+  const stopZoomJogRef = useRef(stopZoomJog);
+  stopJogRef.current = stopJog;
+  stopZoomJogRef.current = stopZoomJog;
+
+  useEffect(() => () => { stopJogRef.current(); stopZoomJogRef.current(); }, []);
 
   // Continuous holds are now unbounded on the daemon side (no per-pulse
   // auto-stop) — if the window loses focus mid-hold (alt-tab, tab switch)
   // no pointerup ever fires, so stop explicitly. The daemon's own 4s safety
   // timeout is the last-resort backstop (e.g. the tab/process dying outright).
   useEffect(() => {
-    const onBlur = () => { stopJog(); stopZoomJog(); };
+    const onBlur = () => { stopJogRef.current(); stopZoomJogRef.current(); };
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
-  }, [stopJog, stopZoomJog]);
+  }, []);
 
   // The cable reading wins when we have one; the platform poll is the
   // fallback for operating off-site. Neither path fabricates: if both are

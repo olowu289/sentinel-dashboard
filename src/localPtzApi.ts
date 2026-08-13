@@ -54,7 +54,20 @@ async function localRequest<T>(method: string, path: string, body?: unknown): Pr
   return resBody as T;
 }
 
-export function localPtzMove(body: PtzMoveBody): Promise<Record<string, unknown>> {
+/**
+ * The SDK's PtzMoveBody plus "jog" — a hold-to-move that the tower drives over
+ * the camera's own CGI (~63ms to start against ONVIF's ~1348ms), falling back
+ * to ONVIF itself for cameras that don't speak it.
+ *
+ * Widened here rather than in the SDK on purpose: the SDK is pinned and shared
+ * with Sentinel, whose platform path has no such mode. This is a tower-direct
+ * capability, so it belongs on the tower-direct client.
+ */
+export type LocalPtzMoveBody =
+  | PtzMoveBody
+  | (Omit<PtzMoveBody, 'mode'> & { mode: 'jog' });
+
+export function localPtzMove(body: LocalPtzMoveBody): Promise<Record<string, unknown>> {
   return localRequest('POST', '/api/ptz/move', body);
 }
 

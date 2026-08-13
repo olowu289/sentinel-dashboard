@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { StreamsResponse, StreamPath, RecordingStatus } from '@sentinel/sdk';
 import type { StatusResponse } from './apiTypes';
 import type { Camera, AlertEvent } from './types';
@@ -317,10 +317,17 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     } catch { /* ignore */ }
   };
 
-  const readyByPath = new Map((streams?.paths ?? []).map((p: StreamPath) => [p.name, !!p.ready]));
   const recOn = !!recording?.enabled;
 
-  const cameras = camerasFrom(config).map((c) => {
+  // MEMOISED DELIBERATELY, not for speed. Rebuilding this array on every
+  // render gave it a new identity every render, and identity propagates:
+  // callbacks that close over `cameras` are rebuilt too, and any effect that
+  // depends on those callbacks re-runs its CLEANUP every render. One such
+  // cleanup stopped the camera, so holding a PTZ button was interrupted about
+  // once a second by the UI itself. Keep this stable.
+  const cameras = useMemo(() => {
+  const readyByPath = new Map((streams?.paths ?? []).map((p: StreamPath) => [p.name, !!p.ready]));
+  return camerasFrom(config).map((c) => {
     const ready = readyByPath.get(c.path);
     let cstatus: Camera['status'] = 'STANDBY';
     if (streams?.available) cstatus = ready ? 'ONLINE' : 'OFFLINE';
@@ -338,6 +345,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
       recording: recOn,
     };
   });
+  }, [config, streams, ptz, recOn]);
 
   const hlsUrls: Record<string, string> = {};
   const webrtcUrls: Record<string, string> = {};
