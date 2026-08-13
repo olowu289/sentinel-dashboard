@@ -24,7 +24,7 @@ const DRIFT_CATCHUP_RATE = 1.08;
 
 /**
  * Minimal WHEP player for the Perception Engine's OWN MediaMTX (no auth —
- * postWhepOffer/deleteWhepSession simply omit X-Kallon-Api-Key when apiKey
+ * postWhepOffer/deleteWhepSession send no auth header at all - the tower's
  * is empty, same as the dashboard's existing "local video mode"). Used for
  * the Mode A "AI Aligned View" comparison tile: this is the exact video the
  * engine's own detections are computed from, so pairing it with
@@ -100,8 +100,8 @@ export default function EngineWhepVideo({ whepUrl, onFatalError, onConnected }: 
       ]);
       if (cancelled) return;
 
-      const { answerSdp, sessionUrl: url } = await postWhepOffer({ apiKey: '' }, whepUrl, pc.localDescription!.sdp);
-      if (cancelled) { void deleteWhepSession({ apiKey: '' }, url); pc.close(); return; }
+      const { answerSdp, sessionUrl: url } = await postWhepOffer(whepUrl, pc.localDescription!.sdp);
+      if (cancelled) { void deleteWhepSession(url); pc.close(); return; }
       sessionUrl = url;
       await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
       if (cancelled) return;
@@ -155,12 +155,12 @@ export default function EngineWhepVideo({ whepUrl, onFatalError, onConnected }: 
       cancelled = true;
       window.clearTimeout(connectTimer);
       if (driftTimer) window.clearInterval(driftTimer);
-      if (sessionUrl) void deleteWhepSession({ apiKey: '' }, sessionUrl);
+      if (sessionUrl) void deleteWhepSession(sessionUrl);
       pc?.close();
     };
     // onFatalError/onConnected intentionally excluded — the parent passes a
     // fresh inline closure every render (same reasoning as LiveWebrtcVideo's
-    // apiKey/ngrok/streamReady exclusion below); including them would tear
+    // streamReady exclusion below); including it would tear
     // down and reconnect a healthy session on every unrelated parent re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [whepUrl, epoch]);

@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import type { StreamsResponse, StreamPath, RecordingStatus } from '@sentinel/sdk';
 import type { StatusResponse } from './apiTypes';
 import type { Camera, AlertEvent } from './types';
-import { usePlatform } from './platformContext';
-import { alertToEvent } from './session';
+import { useTower } from './towerContext';
+import type { TowerConfig } from './towerClient';
+import { localWhepUrl } from './videoSourceMode';
+import { alertToEvent } from './alerts';
 import { formatApiError } from './util';
 
 /** Keep Artemis/ngrok load low — multi-cam HLS + PTZ spam causes cascade failures. */
@@ -52,6 +54,33 @@ export interface TowerLive {
   setRecordingLocal: (s: RecordingStatus | null) => void;
 }
 
+/**
+ * Cameras as the TOWER describes them (GET /api/config), not as this app
+ * assumes them.
+ *
+ * The platform build hardcoded four, because the fleet API did not carry a
+ * per-tower camera list and four was the standard build. On a cable the
+ * tower can simply be asked, so a three-camera or six-camera tower renders
+ * correctly instead of showing phantom tiles that will never come online.
+ * The hardcoded list survives only as the pre-answer placeholder.
+ */
+function camerasFrom(cfg: TowerConfig | null): Camera[] {
+  if (cfg?.cameras?.length) {
+    return cfg.cameras.map((c) => {
+      const id = String(c.camera).padStart(2, '0');
+      return {
+        id,
+        path: c.path,
+        label: (c.label || `CAM ${id}`).toUpperCase(),
+        status: 'STANDBY' as const,
+        az: null, el: null, zoom: null, ptzLive: false,
+        recording: false, recStart: null, homeAz: 0, homeEl: 0,
+      };
+    });
+  }
+  return defaultCameras();
+}
+
 function defaultCameras(): Camera[] {
   return Array.from({ length: CAM_COUNT }, (_, i) => {
     const n = i + 1;
@@ -73,30 +102,26 @@ function defaultCameras(): Camera[] {
   });
 }
 
-function playlistUrl(baseUrl: string, deviceId: string, camera: number): string {
-  const base = baseUrl.replace(/\/$/, '');
-  return `${base}/v1/towers/${encodeURIComponent(deviceId)}/live/cam${camera}/index.m3u8`;
-}
-
-function whepUrl(baseUrl: string, deviceId: string, camera: number): string {
-  const base = baseUrl.replace(/\/$/, '');
-  return `${base}/v1/towers/${encodeURIComponent(deviceId)}/webrtc/cam${camera}/whep`;
-}
-
 /**
- * One instance of this hook now lives for as long as a tower is selected
- * (see FleetApp) — Live wall/Sensors/Alerts all read from the same call
- * instead of each mounting their own, so switching between them no longer
- * shows a false "disconnected" flash while a fresh instance's first poll
- * is in flight. Switching towers is the only time state should reset,
- * handled by the effect below keyed on deviceId.
+ * Video comes straight off the tower's own MediaMTX on the LAN.
  *
- * @param ptzEnabled Gates the PTZ-position poll — only worth running while
- *   the Live wall (the only consumer of camera az/el/zoom) is on screen.
+ * The platform equivalents built /v1/towers/{id}/live/... URLs that were
+ * proxied through the hub - an extra network hop, and one that only existed
+ * so a remote browser could reach a tower it had no route to. On a cable
+ * there is a route, so the hop is pure latency.
+ *
+ * HLS is deliberately not offered. It buys reach through hostile networks at
+ * the cost of seconds of buffering; on the same switch there is no hostile
+ * network to survive, and seconds of latency is the one thing this product
+ * cannot spend. WHEP only.
  */
+
 export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnabled = true): TowerLive {
-  const enabled = !!deviceId;
-  const { client, session } = usePlatform();
+  // Always enabled: there is one tower and we are plugged into it. The old
+  // gate was `!!deviceId`, which existed because the fleet could hand down an
+  // empty selection before it had loaded. Nothing can be unselected now.
+  const enabled = true;
+  const { client } = useTower();
   const [streams, setStreams] = useState<StreamsResponse | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [connected, setConnected] = useState(false);
@@ -108,6 +133,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [targetCueAlert, setTargetCueAlert] = useState<TargetCueAlert | null>(null);
   const [recording, setRecording] = useState<RecordingStatus | null>(null);
+  const [config, setConfig] = useState<TowerConfig | null>(null);
 
   useEffect(() => {
     setStreams(null);
@@ -118,6 +144,14 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     setAlerts([]);
     setRecording(null);
   }, [deviceId]);
+
+  // Asked once: a tower's camera complement does not change while you are
+  // looking at it.
+  useEffect(() => {
+    let cancelled = false;
+    client.config().then((c) => { if (!cancelled) setConfig(c); }).catch(() => { /* placeholder list stands in */ });
+    return () => { cancelled = true; };
+  }, [client]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -130,7 +164,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
         if (!cancelled) {
           setStreams(null);
           setConnected(false);
-          setLinkError(formatApiError(e, 'Could not reach tower via hub'));
+          setLinkError(formatApiError(e, 'Could not reach the tower — check the cable'));
         }
       }
     };
@@ -210,13 +244,18 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     let es: EventSource | null = null;
     const loadHistory = async () => {
       try {
-        const list = await client.listAlerts({ customerId: session.customerId, deviceId, limit: 50 });
+        // No backlog to fetch. The gateway streams alerts as they occur and
+        // keeps no history, so the list starts empty and fills from the live
+        // feed below. An operator who connects late has genuinely missed
+        // what happened before - better that than a list that looks
+        // complete and is not.
+        const list: never[] = [];
         setAlerts(list.map(alertToEvent));
       } catch { /* ignore */ }
     };
     void loadHistory();
 
-    const url = client.eventsUrl(session.customerId);
+    const url = client.eventsUrl();
     es = new EventSource(url);
     es.onmessage = (ev) => {
       try {
@@ -240,12 +279,13 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
             receivedAtMs: Date.now(),
           });
         }
-        if (raw.device_id && raw.device_id !== deviceId) return;
+        // No device filter: every alert arriving on this socket came from
+        // the tower we are plugged into, by definition.
         setAlerts((prev) => [alertToEvent(raw as Parameters<typeof alertToEvent>[0]), ...prev].slice(0, 200));
       } catch { /* ignore */ }
     };
     return () => es?.close();
-  }, [client, session.customerId, deviceId, enabled]);
+  }, [client, enabled]);
 
   const refreshRecording = async () => {
     if (!enabled) return;
@@ -258,18 +298,15 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
   const readyByPath = new Map((streams?.paths ?? []).map((p: StreamPath) => [p.name, !!p.ready]));
   const recOn = !!recording?.enabled;
 
-  const cameras = defaultCameras().map((c) => {
+  const cameras = camerasFrom(config).map((c) => {
     const ready = readyByPath.get(c.path);
     let cstatus: Camera['status'] = 'STANDBY';
     if (streams?.available) cstatus = ready ? 'ONLINE' : 'OFFLINE';
     const pos = ptz[c.id];
-    const camNum = parseInt(c.id, 10) || 1;
-    const hls = playlistUrl(session.baseUrl, deviceId, camNum);
-    const whep = whepUrl(session.baseUrl, deviceId, camNum);
+    const whep = localWhepUrl(c.path);
     return {
       ...c,
       status: cstatus,
-      hlsUrl: hls,
       webrtcUrl: whep,
       az: pos?.az ?? null,
       el: pos?.el ?? null,
@@ -295,7 +332,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     cameras,
     alerts,
     targetCueAlert,
-    hlsUrls,
+    hlsUrls: {},
     webrtcUrls,
     recording,
     refreshRecording,

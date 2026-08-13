@@ -63,6 +63,8 @@ export function subscribeAiTracking(listener: (s: AiTrackingState, reachable: bo
  * on failure (unreachable, not tracking_capable, engine not connected) -
  * callers show the error, they don't need to guess from state alone. */
 export async function setAiTrackingArmed(armed: boolean): Promise<AiTrackingState> {
+  // eslint-disable-next-line no-console
+  console.log('[ai-tracking] setAiTrackingArmed() called, no guard before this line', armed);
   current = await localSetAiTracking(armed);
   reachable = true;
   notify();

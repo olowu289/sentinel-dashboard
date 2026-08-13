@@ -1,39 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatClockUTC1, formatDateTimeUTC1, formatBytes } from '../clock';
-import { usePlatform } from '../platformContext';
 import { useRecordings } from '../useRecordings';
-import { formatApiError } from '../util';
-import type { Tower } from '../types';
 import type { RailView } from './Rail';
 
 const PAGE_SIZE = 24;
 
 interface Props {
-  towers: Tower[];
-  selectedTowerId: string;
-  onSelectTower: (id: string) => void;
+  /** The tower's own name. There is exactly one - see TowerApp. */
+  deviceLabel: string;
   view: RailView;
   onSelectView: (v: RailView) => void;
-  onOpenTowerMenu: () => void;
 }
 
 export default function RecordingsView({
-  towers, selectedTowerId, onSelectTower, view, onSelectView, onOpenTowerMenu,
+  deviceLabel, view, onSelectView,
 }: Props) {
-  const { session, logout } = usePlatform();
   const [camera, setCamera] = useState<number | undefined>(undefined);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [playingLabel, setPlayingLabel] = useState('');
-  const [busyId, setBusyId] = useState('');
   const [actionError, setActionError] = useState('');
   const [page, setPage] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
-  const deviceId = selectedTowerId || undefined;
-  const { segments, retentionDays, loading, error, refresh, play, download, remove } = useRecordings(
-    deviceId,
-    { camera, enabled: !!deviceId },
-  );
+  const { segments, meta, loading, error, refresh, url } = useRecordings(camera);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -43,7 +32,7 @@ export default function RecordingsView({
   useEffect(() => {
     setPage(0);
     setActionError('');
-  }, [deviceId, camera]);
+  }, [camera]);
 
   const pageCount = Math.max(1, Math.ceil(segments.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -52,10 +41,7 @@ export default function RecordingsView({
     [segments, safePage],
   );
 
-  const towerLabel = useMemo(
-    () => towers.find((t) => t.id === selectedTowerId)?.name ?? selectedTowerId,
-    [towers, selectedTowerId],
-  );
+  const towerLabel = deviceLabel;
 
   const clock = formatClockUTC1(now);
   const rangeStart = segments.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
@@ -67,14 +53,14 @@ export default function RecordingsView({
       <header className="topbar">
         <div className="topbar-brand-group">
           <span className="wordmark">SENTINEL</span>
-          <span className="wordmark-sub">{session.customerId}</span>
+          <span className="wordmark-sub">{towerLabel}</span>
         </div>
 
-        <button type="button" className="tower-pill" onClick={onOpenTowerMenu} title={towerLabel}>
+        {/* Not a chooser any more - there is one tower and this is it. */}
+        <div className="tower-pill" title={towerLabel}>
           <span className="tower-pill-dot" />
           <span className="tower-pill-label">{towerLabel}</span>
-          <span className="tower-pill-caret">▾</span>
-        </button>
+        </div>
 
         <nav className="seg-tabs" aria-label="Main sections">
           <button type="button" className={view === 'live' ? 'active' : ''} onClick={() => onSelectView('live')}>Live wall</button>
@@ -84,22 +70,12 @@ export default function RecordingsView({
         <div className="topbar-end-group">
           <div className="topbar-clock">
             <div className="topbar-clock-time">{clock}</div>
-            <div className="topbar-clock-sub">UTC+1 · CLOUD RETENTION {retentionDays}D</div>
+            <div className="topbar-clock-sub">UTC+1 · LOCAL DISK</div>
           </div>
-          <div className="topbar-divider" />
-          <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
         </div>
       </header>
 
       <div className="rec-toolbar">
-        <label className="rec-filter">
-          <span>TOWER</span>
-          <select value={selectedTowerId} onChange={(e) => onSelectTower(e.target.value)}>
-            {towers.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </label>
         <label className="rec-filter">
           <span>CAMERA</span>
           <select
@@ -127,63 +103,31 @@ export default function RecordingsView({
           </div>
           <div className="rec-list-body">
             {segments.length === 0 && !loading && (
-              <div className="rec-empty">No uploaded recordings yet for this tower.</div>
+              <div className="rec-empty">No recordings on this tower's disk yet.</div>
             )}
             {pageItems.map((seg) => (
-              <div className="rec-row" key={seg.segment_id}>
+              <div className="rec-row" key={seg.rel_path}>
                 <div className="rec-row-main">
                   <div className="rec-row-title">CAM {String(seg.camera).padStart(2, '0')}</div>
-                  <div className="rec-row-time">{formatDateTimeUTC1(seg.started_at)}</div>
+                  <div className="rec-row-time">{formatDateTimeUTC1(seg.mtime_utc)}</div>
                   <div className="rec-row-meta">{formatBytes(seg.size_bytes)} · {seg.filename}</div>
                 </div>
                 <div className="rec-row-actions">
+                  {/* No presigning and no fetch round trip: the file is on a
+                      disk one hop away, so the URL IS the playback. */}
                   <button
                     type="button"
                     className="ctl-btn"
-                    disabled={busyId === seg.segment_id}
                     onClick={() => {
-                      setBusyId(seg.segment_id);
-                      void play(seg.segment_id)
-                        .then((url) => {
-                          setPlayingUrl(url);
-                          setPlayingLabel(`${towerLabel} · CAM ${String(seg.camera).padStart(2, '0')}`);
-                        })
-                        .catch((e: unknown) => {
-                          setPlayingUrl(null);
-                          setActionError(formatApiError(e, 'Could not play recording'));
-                        })
-                        .finally(() => setBusyId(''));
+                      setPlayingUrl(url(seg));
+                      setPlayingLabel(`CAM ${String(seg.camera).padStart(2, '0')} · ${seg.filename}`);
                     }}
                   >
                     PLAY
                   </button>
-                  <button
-                    type="button"
-                    className="ctl-btn"
-                    disabled={busyId === seg.segment_id}
-                    onClick={() => {
-                      setBusyId(seg.segment_id);
-                      void download(seg)
-                        .catch((e: unknown) => setActionError(formatApiError(e, 'Could not download recording')))
-                        .finally(() => setBusyId(''));
-                    }}
-                  >
+                  <a className="ctl-btn" href={url(seg)} download={seg.filename}>
                     DOWNLOAD
-                  </button>
-                  <button
-                    type="button"
-                    className="ctl-btn rec-del"
-                    disabled={busyId === seg.segment_id}
-                    onClick={() => {
-                      if (!window.confirm('Delete this recording from cloud storage?')) return;
-                      setBusyId(seg.segment_id);
-                      void remove(seg.segment_id)
-                        .catch((e: unknown) => setActionError(formatApiError(e, 'Could not delete recording')))
-                        .finally(() => setBusyId(''));
-                    }}
-                  >
-                    DELETE
-                  </button>
+                  </a>
                 </div>
               </div>
             ))}
@@ -221,7 +165,7 @@ export default function RecordingsView({
         </section>
       </div>
 
-      <div className="rec-foot">{session.customerId} · uploaded segments only · tenant isolated</div>
+      <div className="rec-foot">{meta.record_path ?? 'local disk'} · on this tower · retention {meta.delete_after_effective ?? '—'}</div>
     </div>
   );
 }

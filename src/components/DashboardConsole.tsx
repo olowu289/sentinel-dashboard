@@ -7,17 +7,16 @@ import { colors, font } from '../tokens';
 import { formatClockUTC1 } from '../clock';
 import { errCode, formatApiError, linkStatusLabel } from '../util';
 import { buildSensors } from '../sensors';
-import { usePlatform } from '../platformContext';
 import { formatAzimuth, formatElevation, formatZoom, NO_DATA } from '../ptzMetrics';
-import { ptzKeepalive } from '../ptzApi';
 import type { RailView } from './Rail';
 import TowerFeed from './TowerFeed';
+import { useTower } from '../towerContext';
 import PtzAttitude from './PtzAttitude';
 import AiAlignedTile from './AiAlignedTile';
 import PtzPad, { type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
-import { loadVideoSourceMode, saveVideoSourceMode, localWhepUrl, type VideoSourceMode } from '../videoSourceMode';
+import { localWhepUrl } from '../videoSourceMode';
 import { localPtzMove, localPtzStop, localPtzStatus, localPtzKeepalive } from '../localPtzApi';
 import { subscribeAiTracking, setAiTrackingArmed } from '../aiTrackingState';
 import type { AiTrackingState } from '../aiTrackingApi';
@@ -78,7 +77,6 @@ interface Props {
   deviceLabel: string;
   view: RailView;
   onSelectView: (v: RailView) => void;
-  onOpenTowerMenu: () => void;
   /** Which camera tile is under PTZ control — owned by FleetApp (shared
    * with the useTowerLive instance's PTZ poll), not local state here. */
   selectedCamId: string;
@@ -88,34 +86,25 @@ interface Props {
   connected: boolean;
   linkError: string;
   cameras: Camera[];
-  hlsUrls: Record<string, string>;
-  webrtcUrls: Record<string, string>;
   recording: RecordingStatus | null;
   setRecordingLocal: (s: RecordingStatus | null) => void;
 }
 
 export default function DashboardConsole({
-  deviceId, deviceLabel, view, onSelectView, onOpenTowerMenu,
+  deviceId, deviceLabel, view, onSelectView,
   selectedCamId, onSelectCamId, streams, status, connected, linkError, cameras,
-  hlsUrls, webrtcUrls, recording, setRecordingLocal,
+  recording, setRecordingLocal,
 }: Props) {
-  const { client, session, logout } = usePlatform();
+  const { client } = useTower();
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
-  const ngrok = session.baseUrl.includes('ngrok');
   // Hub reachability (Platform API can talk to the tower via hub) — not sensor health.
   const linkColor = connected ? colors.online : colors.offline;
   const linkLabel = linkStatusLabel(connected, linkError);
 
   const [now, setNow] = useState(() => Date.now());
-  const [videoMode, setVideoMode] = useState<VideoSourceMode>(loadVideoSourceMode);
-  const isLocalVideo = videoMode === 'local';
-  const toggleVideoMode = useCallback(() => {
-    setVideoMode((m) => {
-      const next: VideoSourceMode = m === 'platform' ? 'local' : 'platform';
-      saveVideoSourceMode(next);
-      return next;
-    });
-  }, []);
+  // No mode to be in. The toggle that chose between the platform and the
+  // cable went with the platform - a one-position switch would only raise
+  // the question of what the other position did.
   const [controlOpen, setControlOpen] = useState(true);
   const [spotlight, setSpotlight] = useState(false);
   const [ptzMsg, setPtzMsg] = useState('');
@@ -216,8 +205,8 @@ export default function DashboardConsole({
     // either way — the platform proxy just forwards this verbatim to the
     // tower's own /api/ptz/move). Never silently falls back to the platform
     // path on failure — see the .catch callers below.
-    return isLocalVideo ? localPtzMove(body) : client.ptzMove(deviceId, body);
-  }, [client, deviceId, selectedCam, camNum, ptzVelocity, isLocalVideo]);
+    return localPtzMove(body);
+  }, [selectedCam, camNum, ptzVelocity]);
 
   const stopJog = useCallback(() => {
     if (jogTimer.current !== undefined) { window.clearTimeout(jogTimer.current); jogTimer.current = undefined; }
@@ -226,10 +215,10 @@ export default function DashboardConsole({
       jogging.current = false;
       bumpLiveSync();
       const cam = camNum(selectedCam?.id ?? '01');
-      void (isLocalVideo ? localPtzStop({ camera: cam }) : client.ptzStop(deviceId, { camera: cam }));
+      void localPtzStop({ camera: cam });
     }
     jogDir.current = null;
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, isLocalVideo]);
+  }, [selectedCam, camNum, bumpLiveSync]);
 
   const panStart = useCallback((dir: PanDir) => {
     stopJog();
@@ -264,10 +253,10 @@ export default function DashboardConsole({
         .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? `ptz ${dir} (busy)` : `move failed: ${formatApiError(e)}`));
       jogInterval.current = window.setInterval(() => {
         const cam = camNum(selectedCam?.id ?? '01');
-        void (isLocalVideo ? localPtzKeepalive(cam) : ptzKeepalive(session, deviceId, cam)).catch(() => { /* best-effort */ });
+        void localPtzKeepalive(cam).catch(() => { /* best-effort */ });
       }, PTZ_KEEPALIVE_MS);
     }, PTZ_HOLD_MS);
-  }, [stopJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum, isLocalVideo]);
+  }, [stopJog, sendMove, bumpLiveSync, selectedCam, camNum]);
 
   const panEnd = useCallback(() => {
     // Tap already sent a pulse on panStart; only clear hold-to-jog if still pending.
@@ -287,10 +276,10 @@ export default function DashboardConsole({
       zoomJogging.current = false;
       bumpLiveSync();
       const cam = camNum(selectedCam?.id ?? '01');
-      void (isLocalVideo ? localPtzStop({ camera: cam }) : client.ptzStop(deviceId, { camera: cam }));
+      void localPtzStop({ camera: cam });
     }
     zoomJogDir.current = null;
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, isLocalVideo]);
+  }, [selectedCam, camNum, bumpLiveSync]);
 
   /** Zoom+/Zoom- are hold controls: an immediate tap pulse on press (the
    * existing small, slider-scaled nudge — unchanged), and if held past
@@ -322,10 +311,10 @@ export default function DashboardConsole({
         .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? 'zoom (busy)' : `zoom failed: ${formatApiError(e)}`));
       zoomJogInterval.current = window.setInterval(() => {
         const cam = camNum(selectedCam?.id ?? '01');
-        void (isLocalVideo ? localPtzKeepalive(cam) : ptzKeepalive(session, deviceId, cam)).catch(() => { /* best-effort */ });
+        void localPtzKeepalive(cam).catch(() => { /* best-effort */ });
       }, PTZ_KEEPALIVE_MS);
     }, PTZ_HOLD_MS);
-  }, [stopZoomJog, sendMove, bumpLiveSync, session, deviceId, selectedCam, camNum, isLocalVideo]);
+  }, [stopZoomJog, sendMove, bumpLiveSync, selectedCam, camNum]);
 
   const zoomEnd = useCallback(() => {
     if (zoomJogTimer.current !== undefined) {
@@ -339,7 +328,7 @@ export default function DashboardConsole({
 
   const captureSnapshot = useCallback(async (camId: string) => {
     try {
-      const blob = await client.snapshot(deviceId, camNum(camId));
+      const blob = await fetch(client.snapshotUrl(camNum(camId))).then((r) => r.blob());
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -384,11 +373,11 @@ export default function DashboardConsole({
   const recenter = useCallback(() => {
     bumpLiveSync();
     const cam = camNum(selectedCam?.id ?? '01');
-    const stop = isLocalVideo ? localPtzStop({ camera: cam, home: true }) : client.ptzStop(deviceId, { camera: cam, home: true });
+    const stop = localPtzStop({ camera: cam, home: true });
     void stop
       .then(() => setPtzMsg('home ok'))
       .catch((e: unknown) => setPtzMsg(isSupersededError(e) ? 'home (busy)' : `home failed: ${formatApiError(e)}`));
-  }, [client, deviceId, selectedCam, camNum, bumpLiveSync, isLocalVideo]);
+  }, [selectedCam, camNum, bumpLiveSync]);
 
   // Local mode's own PTZ status poll — separate from useTowerLive's
   // platform-path poll (which keeps running harmlessly in the background;
@@ -401,12 +390,10 @@ export default function DashboardConsole({
   // Two reasons, and neither is only about speed. The LAN path is a direct
   // hop to the machine that already has the answer, so it can be polled fast
   // enough for the number to track the camera while it turns — the platform
-  // path is a 3s poll through Railway, which shows where the camera USED to
-  // be. And it stays truthful under failure: if the cable is unreachable the
+  // It is a direct hop to the machine that already has the answer, so it can
+  // be polled fast enough for the number to track the camera while it turns.
+  // And it stays truthful under failure: if the cable is unreachable the
   // readout goes blank rather than quietly aging.
-  //
-  // Runs regardless of which video source is selected — where the pixels come
-  // from has nothing to do with where the position is read from.
   const [localPtz, setLocalPtz] = useState<PtzReadout | null>(null);
   useEffect(() => {
     if (!selectedCam) { setLocalPtz(null); return; }
@@ -476,10 +463,10 @@ export default function DashboardConsole({
       <header className="topbar">
         <div className="topbar-brand-group">
           <span className="wordmark">SENTINEL</span>
-          <span className="wordmark-sub">{session.customerId}</span>
+          <span className="wordmark-sub">{deviceLabel}</span>
         </div>
 
-        <button type="button" className="tower-pill" onClick={onOpenTowerMenu} title={linkLabel}>
+        <button type="button" className="tower-pill" title={linkLabel}>
           <span className={`tower-pill-dot${connected ? ' live' : ''}`} style={{ background: linkColor, color: linkColor }} />
           <span className="tower-pill-label">{deviceLabel}</span>
           <span className="tower-pill-caret">▾</span>
@@ -491,26 +478,10 @@ export default function DashboardConsole({
         </nav>
 
         <div className="topbar-end-group">
-          <button
-            type="button"
-            className={`video-mode-toggle${isLocalVideo ? ' is-local' : ''}`}
-            onClick={toggleVideoMode}
-            title={
-              isLocalVideo
-                ? 'Video streaming direct from the tower over the local network — click to switch back to the platform path'
-                : 'Video streaming via the platform/hub — click to switch to direct local-network video (requires being on the camera segment)'
-            }
-          >
-            <span className="video-mode-dot" />
-            {isLocalVideo ? 'LOCAL VIDEO' : 'PLATFORM VIDEO'}
-          </button>
-          <div className="topbar-divider" />
           <div className="topbar-clock">
             <div className="topbar-clock-time">{utc}</div>
-            <div className="topbar-clock-sub">UTC+1 · {isLocalVideo ? 'LOCAL VIDEO' : 'PLATFORM API'}</div>
+            <div className="topbar-clock-sub">UTC+1 · CABLE</div>
           </div>
-          <div className="topbar-divider" />
-          <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
         </div>
       </header>
 
@@ -550,16 +521,8 @@ export default function DashboardConsole({
                 onSelect={() => onSelectCamId(c.id)}
                 onToggleSpotlight={() => setSpotlight((v) => !v)}
                 onSnapshot={() => captureSnapshot(c.id)}
-                hlsUrl={isLocalVideo ? undefined : (c.status === 'ONLINE' ? (hlsUrls[c.id] ?? c.hlsUrl) : undefined)}
-                whepUrl={
-                  isLocalVideo
-                    ? localWhepUrl(c.path)
-                    : (c.status === 'ONLINE' ? (webrtcUrls[c.id] ?? c.webrtcUrl) : undefined)
-                }
+                whepUrl={localWhepUrl(c.path)}
                 syncLiveTick={c.id === selectedCam?.id ? ptzLiveSyncTick : undefined}
-                apiKey={isLocalVideo ? '' : session.apiKey}
-                ngrok={ngrok}
-                localMode={isLocalVideo}
               />
             )
           ))}

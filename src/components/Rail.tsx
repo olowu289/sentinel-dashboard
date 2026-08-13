@@ -6,8 +6,6 @@ export type RailView = 'live' | 'recordings' | 'sensors' | 'alerts';
 interface Props {
   view: RailView;
   onSelectView: (v: RailView) => void;
-  /** Opens the tower drawer (fleet switcher) — the logo doubles as this menu button. */
-  onOpenTowerMenu: () => void;
   initials: string;
   /** Open (unresolved) detection incidents — small count badge on the Alerts icon. */
   alertBadge?: number;
@@ -38,7 +36,7 @@ const iconProps = {
 
 /** Left icon rail — persistent app chrome (logo, section nav, avatar). */
 export default function Rail({
-  view, onSelectView, onOpenTowerMenu, initials, alertBadge = 0,
+  view, onSelectView, initials, alertBadge = 0,
 }: Props) {
   return (
     <div className="rail">
@@ -46,7 +44,6 @@ export default function Rail({
         type="button"
         className="rail-logo"
         style={{ fontFamily: font.display }}
-        onClick={onOpenTowerMenu}
         aria-label="Towers"
         title="Towers"
       >

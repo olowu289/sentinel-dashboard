@@ -1,73 +1,76 @@
 import { useCallback, useEffect, useState } from 'react';
-import { usePlatform } from './platformContext';
-import { formatApiError } from './util';
-import {
-  deleteRecording,
-  getDownloadUrl,
-  getPlaybackUrl,
-  listRecordings,
-  type RecordingSegment,
-} from './recordingsApi';
+import { LOCAL_CONTROL_HOST } from './videoSourceMode';
 
-export function useRecordings(
-  deviceId: string | undefined,
-  opts: { camera?: number; enabled?: boolean } = {},
-) {
-  const { session } = usePlatform();
-  const [segments, setSegments] = useState<RecordingSegment[]>([]);
-  const [retentionDays, setRetentionDays] = useState(30);
+/**
+ * Recordings from the tower's own disk, over the cable.
+ *
+ * The platform version listed segments that had been UPLOADED to cloud
+ * storage, and played them back through presigned URLs scoped to a tenant.
+ * None of that applies here: the footage is on an NVMe a metre away, there is
+ * no tenant to isolate, and a presigned URL is a way of granting access
+ * across a trust boundary that no longer exists.
+ *
+ * The trade is real and worth stating: cloud retention outlived the tower,
+ * so footage survived the hardware being seized or destroyed. Local-only
+ * recording does not. That is a deliberate consequence of removing the
+ * platform, not an oversight.
+ */
+
+export interface LocalSegment {
+  camera: number;
+  filename: string;
+  rel_path: string;
+  size_bytes: number;
+  mtime_utc: string;
+  playback_url: string;
+}
+
+interface LocalRecordingsResponse {
+  record_path?: string;
+  segments?: LocalSegment[];
+  delete_after_effective?: string;
+  segment_duration?: string;
+  error?: string;
+}
+
+export function useRecordings(camera?: number) {
+  const [segments, setSegments] = useState<LocalSegment[]>([]);
+  const [meta, setMeta] = useState<LocalRecordingsResponse>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const enabled = opts.enabled !== false;
 
   const refresh = useCallback(async () => {
-    if (!enabled) return;
     setLoading(true);
     setError('');
     try {
-      const res = await listRecordings(session, session.customerId, {
-        deviceId,
-        camera: opts.camera,
-        limit: 200,
-      });
-      setSegments(res.segments);
-      setRetentionDays(res.retention_days);
+      const qs = new URLSearchParams({ limit: '500' });
+      if (camera) qs.set('camera', String(camera));
+      const res = await fetch(`http://${LOCAL_CONTROL_HOST}/api/recordings?${qs.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as LocalRecordingsResponse;
+      setSegments(data.segments ?? []);
+      setMeta(data);
+      if (data.error) setError(data.error);
     } catch (e) {
-      setError(formatApiError(e, 'Could not load cloud recordings'));
+      // Blank, not stale: an empty list the operator can see is honest,
+      // a list left over from the last successful poll is not.
+      setSegments([]);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [enabled, session, deviceId, opts.camera]);
+  }, [camera]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const play = useCallback(async (segmentId: string) => {
-    const res = await getPlaybackUrl(session, session.customerId, segmentId);
-    return res.url;
-  }, [session]);
+  /** Absolute URL for a segment on this tower. Plain GET with Range support -
+   * no signing, because there is no boundary to sign across. */
+  const url = useCallback(
+    (s: LocalSegment) => (s.playback_url.startsWith('http')
+      ? s.playback_url
+      : `http://${LOCAL_CONTROL_HOST}${s.playback_url}`),
+    [],
+  );
 
-  const download = useCallback(async (seg: RecordingSegment) => {
-    const res = await getDownloadUrl(session, session.customerId, seg.segment_id);
-    const a = document.createElement('a');
-    a.href = res.url;
-    a.download = seg.filename;
-    a.rel = 'noopener';
-    a.click();
-  }, [session]);
-
-  const remove = useCallback(async (segmentId: string) => {
-    await deleteRecording(session, session.customerId, segmentId);
-    setSegments((rows) => rows.filter((s) => s.segment_id !== segmentId));
-  }, [session]);
-
-  return {
-    segments,
-    retentionDays,
-    loading,
-    error,
-    refresh,
-    play,
-    download,
-    remove,
-  };
+  return { segments, meta, loading, error, refresh, url };
 }

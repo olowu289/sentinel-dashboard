@@ -3,14 +3,12 @@ import { postWhepOffer, deleteWhepSession } from '../webrtcApi';
 import type { TileStats } from '../liveStats';
 
 interface Props {
-  /** Platform API WHEP create-session URL (POST an SDP offer here). */
+  /** WHEP create-session URL on the tower's own MediaMTX. */
   whepUrl: string;
-  apiKey: string;
-  /** True when control plane URL is ngrok (needs browser warning skip header). */
-  ngrok?: boolean;
   /** When false, tear down (camera offline / tower down). */
   streamReady?: boolean;
-  /** Called once when this attempt is unrecoverable — parent falls back to HLS. */
+  /** Called once when this attempt is unrecoverable. There is nothing to
+   * fall back to; the parent shows why instead. */
   onFatalError: (err?: unknown) => void;
   /** Called once when this session actually reaches connectionState 'connected'. */
   onConnected?: () => void;
@@ -102,8 +100,6 @@ const ICE_SERVERS: RTCIceServer[] = [
 async function negotiateWhepSession(
   pc: RTCPeerConnection,
   whepUrl: string,
-  apiKey: string,
-  ngrok: boolean,
   isCancelled: () => boolean,
   retryStreamStarting: boolean,
 ): Promise<{ answerSdp: string; sessionUrl: string } | undefined> {
@@ -131,7 +127,7 @@ async function negotiateWhepSession(
   const offerSdp = pc.localDescription!.sdp;
   for (let attempt = 0; !isCancelled(); attempt += 1) {
     try {
-      return await postWhepOffer({ apiKey, ngrok }, whepUrl, offerSdp);
+      return await postWhepOffer(whepUrl, offerSdp);
     } catch (err) {
       const code = (err as { code?: string } | undefined)?.code;
       if (retryStreamStarting && code === 'stream_starting' && attempt < STREAM_STARTING_MAX_RETRIES) {
@@ -149,7 +145,7 @@ async function negotiateWhepSession(
  * one offer — no PATCH/trickle round trip (see webrtcApi.ts). Falls back to HLS (via
  * the LiveVideo wrapper) on any unrecoverable failure or connect timeout.
  */
-export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, streamReady = true, onFatalError, onConnected, onStats }: Props) {
+export default function LiveWebrtcVideo({ whepUrl, streamReady = true, onFatalError, onConnected, onStats }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [note, setNote] = useState('connecting…');
   const [playing, setPlaying] = useState(false);
@@ -262,7 +258,7 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
         settled = true;
         if (timeoutHandle) window.clearTimeout(timeoutHandle);
         newPc.close();
-        if (newSessionUrl) void deleteWhepSession({ apiKey, ngrok }, newSessionUrl);
+        if (newSessionUrl) void deleteWhepSession(newSessionUrl);
         activeReplacementCleanup = null;
         replacementInFlight = false;
         if (cancelled) return; // unmounting/superseded — no visible fallback needed
@@ -273,7 +269,7 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
       activeReplacementCleanup = () => {
         if (timeoutHandle) window.clearTimeout(timeoutHandle);
         newPc.close();
-        if (newSessionUrl) void deleteWhepSession({ apiKey, ngrok }, newSessionUrl);
+        if (newSessionUrl) void deleteWhepSession(newSessionUrl);
       };
 
       timeoutHandle = window.setTimeout(() => abandon('timeout'), REPLACEMENT_TIMEOUT_MS);
@@ -281,7 +277,7 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
 
       try {
         const session = await negotiateWhepSession(
-          newPc, whepUrl, apiKey, ngrok, () => settled || cancelled, false,
+          newPc, whepUrl, () => settled || cancelled, false,
         );
         if (!session || settled || cancelled) { abandon('negotiation did not complete'); return; }
         newSessionUrl = session.sessionUrl;
@@ -338,7 +334,7 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
         lastResyncAtRef.current = Date.now();
 
         oldPc?.close();
-        if (oldSessionUrl) void deleteWhepSession({ apiKey, ngrok }, oldSessionUrl);
+        if (oldSessionUrl) void deleteWhepSession(oldSessionUrl);
 
         activeReplacementCleanup = null;
         replacementInFlight = false;
@@ -453,13 +449,13 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
 
       connectTimer = window.setTimeout(() => fail(new Error('webrtc connect timeout')), CONNECT_TIMEOUT_MS);
 
-      const session = await negotiateWhepSession(pc, whepUrl, apiKey, ngrok, () => cancelled, true);
+      const session = await negotiateWhepSession(pc, whepUrl, () => cancelled, true);
       if (!session) return; // cancelled before any attempt ever succeeded — nothing to clean up
       if (cancelled) {
         // Succeeded right as we were torn down (unmount/camera-switch race) — the
         // returned cleanup below already ran and had no sessionUrl to delete yet,
         // so this branch is the one responsible for tearing down this session.
-        void deleteWhepSession({ apiKey, ngrok }, session.sessionUrl);
+        void deleteWhepSession(session.sessionUrl);
         return;
       }
       sessionUrl = session.sessionUrl;
@@ -484,11 +480,11 @@ export default function LiveWebrtcVideo({ whepUrl, apiKey, ngrok = false, stream
       cancelled = true;
       if (connectTimer) window.clearTimeout(connectTimer);
       if (statsTimer) window.clearInterval(statsTimer);
-      if (sessionUrl) void deleteWhepSession({ apiKey, ngrok }, sessionUrl);
+      if (sessionUrl) void deleteWhepSession(sessionUrl);
       pc?.close();
       activeReplacementCleanup?.();
     };
-    // apiKey/ngrok/streamReady intentionally excluded — see comment above.
+    // streamReady intentionally excluded - see comment above.
     // epoch is included on purpose: a failed/timed-out background replacement
     // bumps it to fall back to the old teardown/rebuild path for this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps

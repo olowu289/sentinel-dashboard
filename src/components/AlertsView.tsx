@@ -1,18 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatClockUTC1, formatRelativeTime } from '../clock';
-import { usePlatform } from '../platformContext';
 import { alertColor, linkStatusLabel } from '../util';
 import { colors } from '../tokens';
-import type { AlertEvent, Tower } from '../types';
+import type { AlertEvent } from '../types';
 import type { RailView } from './Rail';
 
 interface Props {
-  towers: Tower[];
-  selectedTowerId: string;
-  onSelectTower: (id: string) => void;
+  /** The tower's own name. There is exactly one - see TowerApp. */
+  deviceLabel: string;
   view: RailView;
   onSelectView: (v: RailView) => void;
-  onOpenTowerMenu: () => void;
   alerts: AlertEvent[];
   connected: boolean;
   linkError: string;
@@ -64,21 +61,17 @@ function AlertRow({ a, nowMs }: { a: AlertEvent; nowMs: number }) {
  * SensorsView/RecordingsView.
  */
 export default function AlertsView({
-  towers, selectedTowerId, onSelectTower, view, onSelectView, onOpenTowerMenu,
+  deviceLabel, view, onSelectView,
   alerts, connected, linkError,
 }: Props) {
-  const { session, logout } = usePlatform();
-  const [now, setNow] = useState(() => Date.now());
+    const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
 
-  const towerLabel = useMemo(
-    () => towers.find((t) => t.id === selectedTowerId)?.name ?? selectedTowerId,
-    [towers, selectedTowerId],
-  );
+  const towerLabel = deviceLabel;
   const clock = formatClockUTC1(now);
 
   return (
@@ -86,17 +79,17 @@ export default function AlertsView({
       <header className="topbar">
         <div className="topbar-brand-group">
           <span className="wordmark">SENTINEL</span>
-          <span className="wordmark-sub">{session.customerId}</span>
+          <span className="wordmark-sub">{towerLabel}</span>
         </div>
 
-        <button type="button" className="tower-pill" onClick={onOpenTowerMenu} title={towerLabel}>
+        {/* Not a chooser any more - the dot is a link indicator only. */}
+        <div className="tower-pill" title={towerLabel}>
           <span
             className={`tower-pill-dot${connected ? ' live' : ''}`}
             style={{ background: connected ? colors.online : colors.offline }}
           />
           <span className="tower-pill-label">{towerLabel}</span>
-          <span className="tower-pill-caret">▾</span>
-        </button>
+        </div>
 
         <nav className="seg-tabs" aria-label="Main sections">
           <button type="button" className={view === 'live' ? 'active' : ''} onClick={() => onSelectView('live')}>Live wall</button>
@@ -108,23 +101,9 @@ export default function AlertsView({
             <div className="topbar-clock-time">{clock}</div>
             <div className="topbar-clock-sub">UTC+1 · ALERTS</div>
           </div>
-          <div className="topbar-divider" />
-          <button type="button" className="logout-btn" onClick={logout}>Sign out</button>
         </div>
       </header>
 
-      {towers.length > 1 && (
-        <div className="rec-toolbar">
-          <label className="rec-filter">
-            <span>TOWER</span>
-            <select value={selectedTowerId} onChange={(e) => onSelectTower(e.target.value)}>
-              {towers.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
 
       {!connected && <div className="login-error" style={{ margin: 16 }}>{linkStatusLabel(connected, linkError)}</div>}
 

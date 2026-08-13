@@ -17,20 +17,10 @@ interface Props {
   onSelect: () => void;
   onToggleSpotlight: () => void;
   onSnapshot: () => Promise<string | null>;
-  /** Platform API HLS playlist URL — compatibility fallback */
-  hlsUrl?: string;
-  /** Platform API WHEP create-session URL — tried first, sub-second latency */
+  /** WHEP create-session URL on this tower's own MediaMTX. */
   whepUrl?: string;
-  apiKey: string;
-  ngrok?: boolean;
   /** When set, snap this tile to the live HLS edge (PTZ on selected camera). */
   syncLiveTick?: number;
-  /** True when whepUrl is the Jetson's own MediaMTX (dashboard "local video
-   * mode"), not the hub/platform. Deliberately NOT gated on the hub-reported
-   * camera status below — local mode's point is working even when the hub
-   * path is degraded, so this tile always attempts the direct connection and
-   * lets the WebRTC layer report its own success/failure (see LiveVideo). */
-  localMode?: boolean;
 }
 
 /** Empty while connecting — the centered "connecting…" overlay already
@@ -47,13 +37,13 @@ function telemetryText(hasSource: boolean, stats: TileStats | null): string {
 /**
  * One camera tile: live video under a gradient scrim, with a header (name +
  * status) and footer (stream telemetry + quick actions). Snapshot toolbar
- * still downloads a one-shot JPEG from the Platform API (not continuous
+ * still downloads a one-shot JPEG from the tower (not a continuous
  * poll). Recording is toggled from the control panel; tiles only reflect
  * the global recording flag.
  */
 export default function TowerFeed({
   camera, selected, accent, spotlighted, thumb, onSelect, onToggleSpotlight, onSnapshot,
-  hlsUrl, whepUrl, apiKey, ngrok = false, syncLiveTick, localMode = false,
+  whepUrl, syncLiveTick,
 }: Props) {
   const [flash, setFlash] = useState(false);
   const [saveNote, setSaveNote] = useState<string | null>(null);
@@ -68,10 +58,12 @@ export default function TowerFeed({
   // record drives the tracker - see singleSource.ts. Off by default; the
   // WHEP/HLS + AiOverlayCanvas path below is untouched and is the revert.
   const singleSource = singleSourceAvailable(camera.path);
-  // Local mode ignores the hub-reported status entirely (see the localMode
-  // prop doc above) — it always has a source to try and always attempts it.
-  const streamReady = localMode || camera.status === 'ONLINE';
-  const hasSource = singleSource || (!!(whepUrl || hlsUrl) && streamReady);
+  // Always attempt the connection. The stream-readiness flag came from the
+  // hub's view of the tower, which could be stale or simply wrong while the
+  // cable in front of you is fine - so the transport reports its own success
+  // or failure rather than being pre-judged.
+  const streamReady = true;
+  const hasSource = singleSource || !!whepUrl;
   const aiStreamName = aiStreamNameFor(camera.path);
 
   const statusColor =
@@ -115,16 +107,12 @@ export default function TowerFeed({
       {singleSource ? (
         <SingleSourceVideo camPath={camera.path} ai={aiOverlayOn} onError={setSingleSourceError} />
       ) : (
-        (whepUrl || hlsUrl) && (
+        whepUrl && (
           <LiveVideo
-            hlsUrl={hlsUrl}
             whepUrl={whepUrl}
-            apiKey={apiKey}
             streamReady={streamReady}
-            ngrok={ngrok}
             syncLiveTick={syncLiveTick}
             onStats={setStats}
-            localMode={localMode}
           />
         )
       )}

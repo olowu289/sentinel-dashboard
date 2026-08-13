@@ -1,35 +1,25 @@
-import { useMemo, useState } from 'react';
-import { SentinelClient } from '@sentinel/sdk';
-import { clearSession, loadSession, type Session } from './session';
-import { PlatformContext } from './platformContext';
-import { createPlatformFetch } from './platformFetch';
-import Login from './components/Login';
-import FleetApp from './FleetApp';
+import { TowerContext } from './towerContext';
+import { towerClient } from './towerClient';
+import TowerApp from './TowerApp';
 import './styles.css';
 
+/**
+ * Bayanan boots straight into the tower it is cabled to.
+ *
+ * No login, no session, no customer, no fleet. Those exist to answer "which
+ * tower, and are you allowed to see it" - questions a cable already answers.
+ * The browser is on the segment or it is not, and if it is not, the console
+ * says so rather than presenting a sign-in it could never satisfy.
+ *
+ * NO AUTHENTICATION. Deliberate and demo-stage: the gateway has none to
+ * offer (see towerClient), so a login screen here would be decoration. The
+ * physical segment is the trust boundary today. That has to change before
+ * this is fielded.
+ */
 export default function App() {
-  const [session, setSession] = useState<Session | null>(() => loadSession());
-
-  const ctx = useMemo(() => {
-    if (!session) return null;
-    const client = new SentinelClient(session.baseUrl, {
-      apiKey: session.apiKey,
-      fetch: createPlatformFetch(session.baseUrl),
-    });
-    return {
-      client,
-      session,
-      logout: () => { clearSession(); setSession(null); },
-    };
-  }, [session]);
-
-  if (!session || !ctx) {
-    return <Login onLogin={setSession} />;
-  }
-
   return (
-    <PlatformContext.Provider value={ctx}>
-      <FleetApp />
-    </PlatformContext.Provider>
+    <TowerContext.Provider value={{ client: towerClient }}>
+      <TowerApp />
+    </TowerContext.Provider>
   );
 }

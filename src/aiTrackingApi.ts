@@ -5,7 +5,7 @@ import { LOCAL_CONTROL_HOST } from './videoSourceMode';
  * kallon_ai_bridge.py's TRACKING_STATE_PATH for the full state model).
  * Direct calls to the Jetson's own gateway, same as localPtzApi.ts and for
  * the same reason: this is tower-local safety-relevant state with no
- * platform/Railway route today (nothing has needed one yet - every AI
+ * remote route (there is none - every AI
  * tracking task this far has been done LAN-side). No API key sent -
  * gateway.py has no authentication of any kind (see localPtzApi.ts's own
  * note on this).
@@ -19,8 +19,11 @@ export interface AiTrackingState {
 
 async function localRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
+  const url = `http://${LOCAL_CONTROL_HOST}${path}`;
+  // eslint-disable-next-line no-console
+  console.log('[ai-tracking] localRequest: about to fetch', method, url, body);
   try {
-    res = await fetch(`http://${LOCAL_CONTROL_HOST}${path}`, {
+    res = await fetch(url, {
       method,
       headers: {
         Accept: 'application/json',
