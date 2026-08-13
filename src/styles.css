@@ -447,39 +447,43 @@ body {
 .ai-track-row.click-pulse { box-shadow: 0 0 0 2px rgba(150, 160, 255, .55) inset; }
 
 /* ---- PTZ pad ---- */
-.pad-btn {
-  position: absolute; display: flex; align-items: center; justify-content: center;
-  background: #161a21; border: 1px solid rgba(255, 255, 255, .08); border-radius: 9px;
-  color: #ccd1db; font-size: 14px; cursor: pointer;
-  transition: background .12s, border-color .12s, color .12s, transform .08s;
-}
-.pad-btn:hover:not(:disabled) { background: rgba(120, 130, 255, .2); border-color: rgba(150, 160, 255, .3); color: #eef0f4; }
-.pad-btn.active { background: rgba(120, 130, 255, .28); border-color: var(--accent, oklch(0.78 0.13 275)); color: #eef0f4; }
-.pad-btn:disabled { opacity: .35; color: #5a656f; border-color: rgba(255, 255, 255, .05); cursor: not-allowed; }
-.pad-up    { top: 9px;    left: 50%; transform: translateX(-50%); width: 42px; height: 34px; }
-.pad-down  { bottom: 9px; left: 50%; transform: translateX(-50%); width: 42px; height: 34px; }
-.pad-left  { left: 9px;   top: 50%;  transform: translateY(-50%); width: 34px; height: 42px; }
-.pad-right { right: 9px;  top: 50%;  transform: translateY(-50%); width: 34px; height: 42px; }
-/* Corners sit on the 45-degree diagonal of the circular pad: 50% +/- 0.3536
-   of the diameter puts them the same distance from the centre as the edge
-   buttons, so all eight read as one ring rather than four plus four. */
-.pad-upleft    { top: 14%; left: 14%; width: 34px; height: 34px; }
-.pad-upright   { top: 14%; right: 14%; width: 34px; height: 34px; }
-.pad-downleft  { bottom: 14%; left: 14%; width: 34px; height: 34px; }
-.pad-downright { bottom: 14%; right: 14%; width: 34px; height: 34px; }
-.pad-upleft:active    { transform: translate(-2px, -2px); }
-.pad-upright:active   { transform: translate(2px, -2px); }
-.pad-downleft:active  { transform: translate(-2px, 2px); }
-.pad-downright:active { transform: translate(2px, 2px); }
+/* Eight wedges in one ring, drawn as SVG so adjacent segments SHARE an edge.
+   The previous pad was eight positioned boxes with real gaps between them; a
+   press landing in a gap did nothing, which on a ring this narrow was often. */
+.pad-ring-bed { fill: #0f151a; stroke: #2b343d; stroke-width: 1; }
 
-.pad-up:active    { transform: translateX(-50%) translateY(2px); }
-.pad-down:active  { transform: translateX(-50%) translateY(2px); }
-.pad-left:active  { transform: translateY(-50%) translateX(-2px); }
-.pad-right:active { transform: translateY(-50%) translateX(2px); }
+.pad-wedge-hit {
+  fill: #161a21;
+  stroke: #2b343d;
+  stroke-width: .7;
+  cursor: pointer;
+  transition: fill .12s;
+}
+.pad-wedge-arrow {
+  fill: #ccd1db;
+  pointer-events: none;           /* the wedge under it owns the whole gesture */
+  transition: fill .12s;
+}
+.pad-wedge:hover .pad-wedge-hit { fill: rgba(120, 130, 255, .20); }
+.pad-wedge:hover .pad-wedge-arrow { fill: #eef0f4; }
+
+.pad-wedge.active .pad-wedge-hit {
+  fill: rgba(120, 130, 255, .30);
+  stroke: var(--accent, oklch(0.78 0.13 275));
+  stroke-width: 1.2;
+}
+.pad-wedge.active .pad-wedge-arrow { fill: #ffffff; }
+
+/* Drawn last, over the wedge strokes, so the ring reads as one machined part
+   rather than eight tiles that happen to touch. */
+.pad-ring-edge { fill: none; stroke: #323c47; stroke-width: 1; pointer-events: none; }
+
+.pad-ring.disabled { opacity: .35; }
+.pad-ring.disabled .pad-wedge-hit { cursor: not-allowed; }
 
 .pad-center {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 62px; height: 62px; border-radius: 50%;
+  border-radius: 50%;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   background: linear-gradient(160deg, #f2f3f7, #c9cdda); border: none; color: #0b0b10; cursor: pointer;
   box-shadow: 0 6px 22px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .2);
