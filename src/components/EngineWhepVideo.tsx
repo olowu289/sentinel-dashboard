@@ -10,10 +10,39 @@ interface Props {
   onConnected?: () => void;
 }
 
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-];
+/**
+ * NO ICE SERVERS — host candidates only.
+ *
+ * The platform build listed Google and Cloudflare STUN because a remote
+ * browser behind NAT needed a reflexive candidate to reach the hub. Neither
+ * half of that holds here: the browser and MediaMTX are on the same switch,
+ * so a host candidate IS the route.
+ *
+ * Removing them is not tidying. With STUN configured on an isolated network,
+ * ICE gathering blocks waiting for replies that never come and only proceeds
+ * when ICE_GATHER_TIMEOUT_MS expires — 3.5 SECONDS added to every camera
+ * connection, on a product whose whole premise is latency. With nothing to
+ * query, gathering completes almost immediately.
+ *
+ * It is also what lets this run air-gapped.
+ */
+/**
+ * NO ICE SERVERS — host candidates only.
+ *
+ * The platform build listed Google and Cloudflare STUN because a remote
+ * browser behind NAT needed a reflexive candidate to reach the hub. Neither
+ * half of that holds here: the browser and MediaMTX are on the same switch,
+ * so a host candidate IS the route.
+ *
+ * Removing them is not tidying. With STUN configured on an isolated network,
+ * ICE gathering blocks waiting for replies that never come and only proceeds
+ * when ICE_GATHER_TIMEOUT_MS expires — 3.5 SECONDS added to every camera
+ * connection, on a product whose whole premise is latency. With nothing to
+ * query, gathering completes almost immediately.
+ *
+ * It is also what lets this run air-gapped.
+ */
+const ICE_SERVERS: RTCIceServer[] = [];
 const ICE_GATHER_TIMEOUT_MS = 3500;
 const CONNECT_TIMEOUT_MS = 8000;
 /** How often the drift guard checks currentTime advance vs wall clock. */

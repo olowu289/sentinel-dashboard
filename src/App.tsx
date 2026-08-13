@@ -1,6 +1,7 @@
 import { TowerContext } from './towerContext';
 import { towerClient } from './towerClient';
 import TowerApp from './TowerApp';
+import './fonts.css';
 import './styles.css';
 
 /**
