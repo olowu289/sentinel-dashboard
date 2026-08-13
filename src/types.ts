@@ -15,6 +15,12 @@ export interface Camera {
   az: number | null;
   el: number | null;
   zoom: number | null;
+  /** Which optic this tile shows. A fixed lens cannot be driven, so the pad
+   * must never be pointed at one. */
+  lens: 'ptz' | 'fixed';
+  ptzCapable: boolean;
+  /** The camera this optic belongs to — both tiles of one dome share it. */
+  unit: number;
   /** True while the camera is actually turning (reported by the camera). */
   ptzMoving?: boolean;
   ptzLive: boolean;

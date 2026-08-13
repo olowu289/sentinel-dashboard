@@ -69,13 +69,22 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return parsed as T;
 }
 
-/** One camera as the tower itself describes it (GET /api/config). */
-export interface TowerCamera {
-  camera: number;
+/** One optic. The tower reports which kind it is rather than leaving the UI
+ * to infer it from the path name. */
+export interface TowerLens {
   path: string;
   label?: string | null;
+  lens?: 'ptz' | 'fixed';
+  ptz_capable?: boolean;
   hls_url?: string | null;
   mjpeg_url?: string | null;
+}
+
+/** One physical camera. These domes carry TWO optics: a PTZ one (the entry
+ * itself) and a fixed wide one (`fixed`), on separate video channels. */
+export interface TowerCamera extends TowerLens {
+  camera: number;
+  fixed?: TowerLens | null;
 }
 
 export interface TowerConfig {

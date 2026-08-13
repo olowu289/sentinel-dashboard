@@ -65,20 +65,36 @@ export interface TowerLive {
  * The hardcoded list survives only as the pre-answer placeholder.
  */
 function camerasFrom(cfg: TowerConfig | null): Camera[] {
-  if (cfg?.cameras?.length) {
-    return cfg.cameras.map((c) => {
-      const id = String(c.camera).padStart(2, '0');
-      return {
-        id,
-        path: c.path,
-        label: (c.label || `CAM ${id}`).toUpperCase(),
-        status: 'STANDBY' as const,
+  if (!cfg?.cameras?.length) return defaultCameras();
+
+  // TWO TILES PER DOME. Each camera carries a PTZ optic and a fixed wide one
+  // on separate channels. The PTZ optics are emitted first as a block, then
+  // the fixed ones, so a two-column grid reads as one camera per column with
+  // the drivable view on top and its fixed companion directly beneath it.
+  const ptz: Camera[] = [];
+  const fixed: Camera[] = [];
+
+  for (const c of cfg.cameras) {
+    const n = c.camera;
+    const id = String(n).padStart(2, '0');
+    ptz.push({
+      id, unit: n, path: c.path, label: `CAM ${id}`,
+      lens: 'ptz', ptzCapable: c.ptz_capable !== false,
+      status: 'STANDBY',
+      az: null, el: null, zoom: null, ptzLive: false,
+      recording: false, recStart: null, homeAz: 0, homeEl: 0,
+    });
+    if (c.fixed?.path) {
+      fixed.push({
+        id: `${id}F`, unit: n, path: c.fixed.path, label: `CAM ${id} FIXED`,
+        lens: 'fixed', ptzCapable: false,
+        status: 'STANDBY',
         az: null, el: null, zoom: null, ptzLive: false,
         recording: false, recStart: null, homeAz: 0, homeEl: 0,
-      };
-    });
+      });
+    }
   }
-  return defaultCameras();
+  return [...ptz, ...fixed];
 }
 
 function defaultCameras(): Camera[] {
@@ -87,8 +103,11 @@ function defaultCameras(): Camera[] {
     const id = String(n).padStart(2, '0');
     return {
       id,
+      unit: n,
       path: `cam${n}`,
       label: `CAM ${id}`,
+      lens: 'ptz' as const,
+      ptzCapable: true,
       status: 'STANDBY',
       az: null,
       el: null,
@@ -206,7 +225,10 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
   // and only while ptzEnabled (Live wall is the only view that shows az/el/zoom).
   useEffect(() => {
     if (!enabled || !ptzEnabled) return;
-    const cam = parseInt(selectedCamId || '01', 10) || 1;
+    // A fixed optic has no position of its own: it shares the dome with the
+    // PTZ one but nothing moves it. Poll by DOME number, never by tile id -
+    // the fixed tiles carry ids like "01F".
+    const cam = parseInt((selectedCamId || '01').replace(/\D/g, ''), 10) || 1;
     let cancelled = false;
     const pollPtz = async () => {
       try {

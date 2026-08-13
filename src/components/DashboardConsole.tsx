@@ -184,7 +184,14 @@ export default function DashboardConsole({
 
   const selectedCam = cameras.find((c) => c.id === selectedCamId) ?? cameras[0];
 
-  const camNum = useCallback((id: string) => parseInt(id, 10) || 1, []);
+  // PTZ addresses a DOME, not a tile. Each dome shows two tiles (its PTZ
+  // optic and its fixed one) and only the PTZ optic moves — so a command is
+  // resolved through the tile's `unit`, never parsed out of its id. The fixed
+  // tiles carry ids like "01F", which parseInt would silently accept.
+  const camNum = useCallback(
+    (id: string) => cameras.find((c) => c.id === id)?.unit ?? (parseInt(id, 10) || 1),
+    [cameras],
+  );
 
   /** seconds omitted = unbounded start (daemon runs it until a "stop"
    * arrives, or its own 4s safety timeout); a real value = the original
@@ -573,6 +580,26 @@ export default function DashboardConsole({
                 {ptzSource === 'cable' ? 'CABLE' : ptzSource === 'platform' ? 'PLATFORM' : NO_DATA}
               </span>
               {ptzReadout?.moving && <span style={{ color: ACCENT }}>· SLEWING</span>}
+            </div>
+
+            {/* Which optic the pad actually moves. A dome shows two tiles and
+                only one of them can be driven — selecting the fixed view and
+                wondering why the picture will not move is a mistake worth
+                designing out rather than explaining. */}
+            <div
+              style={{
+                fontFamily: font.mono, fontSize: 10, letterSpacing: '0.06em',
+                color: colors.textCaption, display: 'flex', gap: 6, alignItems: 'center',
+              }}
+              title={
+                selectedCam.ptzCapable
+                  ? 'The pad drives this camera'
+                  : 'This is the fixed optic — it cannot move. The pad drives the PTZ optic of the same camera.'
+              }
+            >
+              <span>PAD DRIVES</span>
+              <span style={{ color: ACCENT }}>CAM {String(selectedCam.unit).padStart(2, '0')} · PTZ</span>
+              {!selectedCam.ptzCapable && <span>· viewing FIXED</span>}
             </div>
 
             <button
