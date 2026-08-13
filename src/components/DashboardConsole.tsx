@@ -13,7 +13,7 @@ import TowerFeed from './TowerFeed';
 import { useTower } from '../towerContext';
 import PtzAttitude from './PtzAttitude';
 import AiAlignedTile from './AiAlignedTile';
-import PtzPad, { type PanDir } from './PtzPad';
+import PtzPad, { PAN_VECTOR, type PanDir } from './PtzPad';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
 import { localWhepUrl } from '../videoSourceMode';
@@ -198,8 +198,12 @@ export default function DashboardConsole({
    * bounded pulse (one self-contained tap, no follow-up stop needed). */
   const sendMove = useCallback((dir: PanDir | null, zoomDir: number, zoomVelocity: number, seconds?: number) => {
     const cam = camNum(selectedCam?.id ?? '01');
-    const p = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
-    const t = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
+    // Eight directions, from one table in PtzPad. The old inline ternaries
+    // could only express the four cardinals, and a diagonal would have had to
+    // be bolted on in two places that could drift apart.
+    const v = dir ? PAN_VECTOR[dir] : { pan: 0, tilt: 0 };
+    const p = v.pan;
+    const t = v.tilt;
     const body = {
       camera: cam,
       mode: 'continuous' as const,

@@ -460,6 +460,18 @@ body {
 .pad-down  { bottom: 9px; left: 50%; transform: translateX(-50%); width: 42px; height: 34px; }
 .pad-left  { left: 9px;   top: 50%;  transform: translateY(-50%); width: 34px; height: 42px; }
 .pad-right { right: 9px;  top: 50%;  transform: translateY(-50%); width: 34px; height: 42px; }
+/* Corners sit on the 45-degree diagonal of the circular pad: 50% +/- 0.3536
+   of the diameter puts them the same distance from the centre as the edge
+   buttons, so all eight read as one ring rather than four plus four. */
+.pad-upleft    { top: 14%; left: 14%; width: 34px; height: 34px; }
+.pad-upright   { top: 14%; right: 14%; width: 34px; height: 34px; }
+.pad-downleft  { bottom: 14%; left: 14%; width: 34px; height: 34px; }
+.pad-downright { bottom: 14%; right: 14%; width: 34px; height: 34px; }
+.pad-upleft:active    { transform: translate(-2px, -2px); }
+.pad-upright:active   { transform: translate(2px, -2px); }
+.pad-downleft:active  { transform: translate(-2px, 2px); }
+.pad-downright:active { transform: translate(2px, 2px); }
+
 .pad-up:active    { transform: translateX(-50%) translateY(2px); }
 .pad-down:active  { transform: translateX(-50%) translateY(2px); }
 .pad-left:active  { transform: translateY(-50%) translateX(-2px); }
