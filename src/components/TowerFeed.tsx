@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Camera } from '../types';
 import { colors, font } from '../tokens';
 import type { TileStats } from '../liveStats';
@@ -6,7 +6,7 @@ import LiveVideo from './LiveVideo';
 import AiOverlayCanvas from './AiOverlayCanvas';
 import SingleSourceVideo from './SingleSourceVideo';
 import { aiStreamNameFor } from '../aiConfig';
-import { singleSourceAvailable } from '../singleSource';
+import { singleSourceAvailable, subscribeEngineFeeds, feedPort, type EngineFeed } from '../singleSource';
 
 interface Props {
   camera: Camera;
@@ -57,7 +57,11 @@ export default function TowerFeed({
   // are burned into the frame they were detected from, and the same detection
   // record drives the tracker - see singleSource.ts. Off by default; the
   // WHEP/HLS + AiOverlayCanvas path below is untouched and is the revert.
-  const singleSource = singleSourceAvailable(camera.path);
+  // Which feeds the detector serves, from the engine itself (see
+  // singleSource.ts). Every tile subscribes; the module makes one request.
+  const [engineFeeds, setEngineFeeds] = useState<EngineFeed[]>([]);
+  useEffect(() => subscribeEngineFeeds(setEngineFeeds), []);
+  const singleSource = singleSourceAvailable(camera.path, engineFeeds);
   // Always attempt the connection. The stream-readiness flag came from the
   // hub's view of the tower, which could be stale or simply wrong while the
   // cable in front of you is fine - so the transport reports its own success
@@ -105,7 +109,12 @@ export default function TowerFeed({
       )}
 
       {singleSource ? (
-        <SingleSourceVideo camPath={camera.path} ai={aiOverlayOn} onError={setSingleSourceError} />
+        <SingleSourceVideo
+          camPath={camera.path}
+          ai={aiOverlayOn}
+          port={feedPort(camera.path, engineFeeds)}
+          onError={setSingleSourceError}
+        />
       ) : (
         whepUrl && (
           <LiveVideo
@@ -186,15 +195,17 @@ export default function TowerFeed({
             </svg>
           </button>
 
-          {aiStreamName && (
+          {(singleSource || aiStreamName) && (
             <button
               className="feed-action-btn feed-ai-btn"
               onClick={() => setAiOverlayOn((v) => !v)}
               aria-pressed={aiOverlayOn}
-              aria-label={aiOverlayOn ? 'Hide AI detection overlay' : 'Show AI detection overlay'}
-              title="AI detection overlay"
+              aria-label={aiOverlayOn ? 'Hide detection boxes' : 'Show detection boxes'}
+              // "AI" named the implementation; DETECT names what the button
+              // does, which is the thing an operator is choosing.
+              title="Detection boxes"
             >
-              AI
+              DETECT
             </button>
           )}
         </div>
