@@ -6,6 +6,7 @@ import { useTower } from './towerContext';
 import type { TowerConfig } from './towerClient';
 import { localWhepUrl } from './videoSourceMode';
 import { alertToEvent } from './alerts';
+import { parseTrackEvent, TRACK_LOG_MAX, type TrackEvent } from './trackLog';
 import { formatApiError } from './util';
 
 /** Keep Artemis/ngrok load low — multi-cam HLS + PTZ spam causes cascade failures. */
@@ -43,6 +44,13 @@ export interface TowerLive {
   linkError: string;
   cameras: Camera[];
   alerts: AlertEvent[];
+  /** Tower-wide track log, oldest first. Every camera writes into one list —
+   *  an operator watching the wall should not have to choose a camera before
+   *  they can see what the tower is doing. Bounded to TRACK_LOG_MAX. */
+  trackEvents: TrackEvent[];
+  /** Whether the event stream itself is up, so the log can say "no stream"
+   *  rather than sitting empty and looking quiet. */
+  trackConnected: boolean;
   targetCueAlert: TargetCueAlert | null;
   /** Platform HLS playlist URLs keyed by camera id ("01"…"04"). */
   hlsUrls: Record<string, string>;
@@ -150,6 +158,10 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     moving?: boolean; live: boolean;
   }>>({});
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
+  // Tower-wide, newest last. Bounded in the reducer above so a console
+  // left open overnight cannot grow without limit.
+  const [trackEvents, setTrackEvents] = useState<TrackEvent[]>([]);
+  const [trackConnected, setTrackConnected] = useState(false);
   const [targetCueAlert, setTargetCueAlert] = useState<TargetCueAlert | null>(null);
   const [recording, setRecording] = useState<RecordingStatus | null>(null);
   const [config, setConfig] = useState<TowerConfig | null>(null);
@@ -264,6 +276,7 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
   useEffect(() => {
     if (!enabled) return;
     let es: EventSource | null = null;
+    setTrackConnected(false);
     const loadHistory = async () => {
       try {
         // No backlog to fetch. The gateway streams alerts as they occur and
@@ -279,9 +292,27 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
 
     const url = client.eventsUrl();
     es = new EventSource(url);
+    es.onopen = () => setTrackConnected(true);
+    es.onerror = () => setTrackConnected(false);
     es.onmessage = (ev) => {
       try {
-        const raw = JSON.parse(ev.data) as {
+        const parsed: unknown = JSON.parse(ev.data);
+
+        // Track events share this stream with alerts (see trackLog.ts): an
+        // alert is a track event that crossed a threshold, not a separate
+        // pipeline. One EventSource carries both - opening a second would
+        // spend another connection against the browser's per-host cap for
+        // nothing, and that cap is what blanked a tile earlier today.
+        const track = parseTrackEvent(parsed);
+        if (track) {
+          setTrackEvents((prev) => {
+            const next = prev.concat(track);
+            return next.length > TRACK_LOG_MAX ? next.slice(next.length - TRACK_LOG_MAX) : next;
+          });
+          return;
+        }
+
+        const raw = parsed as {
           device_id?: string;
           alert_type?: string;
           details?: Record<string, unknown>;
@@ -361,6 +392,8 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
     linkError,
     cameras,
     alerts,
+    trackEvents,
+    trackConnected,
     targetCueAlert,
     hlsUrls: {},
     webrtcUrls,

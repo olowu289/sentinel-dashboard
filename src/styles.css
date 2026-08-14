@@ -1001,3 +1001,101 @@ body {
   color: #b7bdc9; font-size: 15px; line-height: 1; cursor: pointer; transition: background .12s, color .12s;
 }
 .ai-aligned-disable-btn:hover { background: rgba(255, 90, 90, .18); color: #eef0f4; }
+
+/* ---- TRACK LOG ----------------------------------------------------------
+   Lives in the console beside the video: the question it answers - what is the
+   tower doing, and where is the thing it found - is one an operator should
+   never have to leave the wall to ask.
+
+   Two encodings, kept apart on purpose. The left edge carries SEVERITY (what
+   happened); the camera chip carries IDENTITY (who it happened to). Both on the
+   left edge made each harder to read. */
+.tracklog{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden;
+  background:linear-gradient(180deg,#0e1116,#0a0c10);
+  border:1px solid rgba(255,255,255,.07);border-radius:14px}
+.tracklog-head{display:flex;justify-content:space-between;align-items:center;
+  padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.06)}
+.tracklog-cap{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:8.5px;
+  letter-spacing:.14em;color:#5f6673}
+.tracklog-live{display:flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-size:8.5px;letter-spacing:.1em;color:oklch(0.75 0.14 155)}
+.tracklog-live i{width:5px;height:5px;border-radius:50%;background:currentColor;
+  animation:tlPulse 1.6s ease-in-out infinite}
+.tracklog-live.off{color:oklch(0.62 0.17 22)}
+.tracklog-live.off i{animation:none}
+@keyframes tlPulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* One grid definition, shared by the header and the rows, so a column can
+   never drift between the two. */
+.tracklog-cols,.tracklog-row{display:grid;
+  grid-template-columns:52px 30px 62px minmax(0,1fr) 44px 40px;gap:6px}
+.tracklog-cols{padding:6px 11px;border-bottom:1px solid rgba(255,255,255,.06);
+  font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:7.5px;letter-spacing:.1em;color:#5f6673}
+.tracklog-cols .r{text-align:right}
+
+.tracklog-rows{flex:1;overflow-y:auto;padding:3px 0 6px;min-height:0}
+.tracklog-rows::-webkit-scrollbar{width:5px}
+.tracklog-rows::-webkit-scrollbar-thumb{background:#232830;border-radius:3px}
+.tracklog-empty{padding:16px 12px;font-size:11px;line-height:1.6;color:#5f6673}
+
+.tracklog-row{padding:3px 11px;font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-size:10px;line-height:1.45;border-left:2px solid transparent;
+  font-variant-numeric:tabular-nums;animation:tlIn .22s ease-out}
+@keyframes tlIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+.tracklog-row:hover{background:rgba(255,255,255,.022)}
+.tracklog-row .t{color:#6d7482}
+.tracklog-row .e{letter-spacing:.05em;color:#9aa1ad;white-space:nowrap}
+.tracklog-row .d{color:#8b929e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tracklog-row .b,.tracklog-row .v{text-align:right;color:#cfd3da}
+.tracklog-row .dot{margin-left:5px;font-size:9px;color:oklch(0.65 0.19 20)}
+
+/* Camera identity: a chip, never the left edge (that is severity's). */
+.tracklog-row .c{display:inline-block;text-align:center;border-radius:3px;padding:0 3px;
+  font-size:9px;letter-spacing:.04em;line-height:1.5;color:#9aa1ad}
+.tracklog-row .c.c1{color:oklch(0.80 0.10 215);background:rgba(110,190,225,.13)}
+.tracklog-row .c.c2{color:oklch(0.78 0.12 340);background:rgba(230,140,190,.13)}
+.tracklog-row .c.rf{color:oklch(0.78 0.13 275);background:rgba(140,150,255,.14)}
+.tracklog-row .c.cn{background:rgba(255,255,255,.06)}
+
+/* Severity on the left edge. Only the kinds that mean something different to
+   an operator are marked; TRK is the quiet default and stays unmarked. */
+.tracklog-row.k-cue{border-left-color:oklch(0.78 0.13 275)}
+.tracklog-row.k-cue .e{color:#c3c8ff}
+.tracklog-row.k-acq{border-left-color:oklch(0.75 0.14 155)}
+.tracklog-row.k-acq .e{color:oklch(0.75 0.14 155)}
+.tracklog-row.k-slew .e{color:#6d7482}
+.tracklog-row.k-home .e{color:#6d7482}
+.tracklog-row.k-handoff{border-left-color:oklch(0.78 0.14 80)}
+.tracklog-row.k-handoff .e{color:oklch(0.78 0.14 80)}
+.tracklog-row.k-lost{border-left-color:oklch(0.78 0.14 80)}
+.tracklog-row.k-lost .e{color:oklch(0.78 0.14 80)}
+.tracklog-row.k-disarm{border-left-color:oklch(0.78 0.14 80)}
+.tracklog-row.k-disarm .e{color:oklch(0.78 0.14 80)}
+.tracklog-row.k-limit{border-left-color:oklch(0.65 0.19 20);background:rgba(255,90,90,.05)}
+.tracklog-row.k-limit .e,.tracklog-row.k-limit .d{color:oklch(0.65 0.19 20)}
+.tracklog-row.k-alert{border-left-color:oklch(0.65 0.19 20);background:rgba(255,90,90,.075)}
+.tracklog-row.k-alert .e{color:oklch(0.65 0.19 20);font-weight:500}
+
+.tracklog-foot{display:flex;justify-content:space-between;align-items:center;
+  padding:6px 11px;border-top:1px solid rgba(255,255,255,.06);
+  font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:8px;letter-spacing:.06em;color:#5f6673}
+.tracklog-key{display:flex;align-items:center;gap:6px}
+.tracklog-key em{font-style:normal;border-radius:3px;padding:0 4px;font-size:8px;letter-spacing:.06em}
+.tracklog-key em.c1{color:oklch(0.80 0.10 215);background:rgba(110,190,225,.13)}
+.tracklog-key em.c2{color:oklch(0.78 0.12 340);background:rgba(230,140,190,.13)}
+.tracklog-key em.rf{color:oklch(0.78 0.13 275);background:rgba(140,150,255,.14)}
+.tracklog-jump{background:none;border:none;padding:0;cursor:pointer;font:inherit;
+  color:oklch(0.78 0.13 275);letter-spacing:.06em}
+.tracklog-jump:hover{color:#c3c8ff}
+.tracklog-jump:focus-visible{outline:1px solid oklch(0.78 0.13 275);outline-offset:2px}
+
+/* The rail becomes a column: control block on top, log filling what is left.
+   The control block keeps its natural height and the log takes the remainder,
+   which is why the readouts and pad were compacted rather than the log given
+   a fixed height it would outgrow. */
+.control{display:flex;flex-direction:column;min-height:0}
+.control > .tracklog{margin-top:10px}
+
+@media (prefers-reduced-motion:reduce){
+  .tracklog-row,.tracklog-live i{animation:none}
+}

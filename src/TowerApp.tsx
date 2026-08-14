@@ -109,6 +109,8 @@ export default function TowerApp() {
             connected={live.connected}
             linkError={live.linkError}
             cameras={live.cameras}
+            trackEvents={live.trackEvents}
+            trackConnected={live.trackConnected}
             recording={live.recording}
             setRecordingLocal={live.setRecordingLocal}
           />

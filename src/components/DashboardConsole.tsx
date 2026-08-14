@@ -14,12 +14,14 @@ import { useTower } from '../towerContext';
 import PtzAttitude from './PtzAttitude';
 import AiAlignedTile from './AiAlignedTile';
 import PtzPad, { PAN_VECTOR, type PanDir } from './PtzPad';
+import TrackLog from './TrackLog';
 import PtzSpeedSlider, { speedToVelocity } from './PtzSpeedSlider';
 import SensorBar from './SensorBar';
 import { localWhepUrl } from '../videoSourceMode';
 import { localPtzMove, localPtzStop, localPtzStatus, localPtzKeepalive } from '../localPtzApi';
 import { subscribeAiTracking, setAiTrackingArmed } from '../aiTrackingState';
 import type { AiTrackingState } from '../aiTrackingApi';
+import type { TrackEvent } from '../trackLog';
 
 const ACCENT = colors.accent;
 /**
@@ -96,6 +98,10 @@ interface Props {
   connected: boolean;
   linkError: string;
   cameras: Camera[];
+  /** Tower-wide track log — every camera's events in one list, so the operator
+   *  never has to pick a camera to see what the tower is doing. */
+  trackEvents: TrackEvent[];
+  trackConnected: boolean;
   recording: RecordingStatus | null;
   setRecordingLocal: (s: RecordingStatus | null) => void;
 }
@@ -103,7 +109,7 @@ interface Props {
 export default function DashboardConsole({
   deviceId, deviceLabel, view, onSelectView,
   selectedCamId, onSelectCamId, streams, status, connected, linkError, cameras,
-  recording, setRecordingLocal,
+  trackEvents, trackConnected, recording, setRecordingLocal,
 }: Props) {
   const { client } = useTower();
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
@@ -729,6 +735,7 @@ export default function DashboardConsole({
               moving={ptzReadout?.moving}
               accent={ACCENT}
             />
+            <TrackLog events={trackEvents} connected={trackConnected} />
           </aside>
         )}
       </main>
