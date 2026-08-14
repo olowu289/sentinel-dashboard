@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  cameraClass, cameraLabel, formatBearing, formatElevation, trackTime,
+  cameraClass, cameraLabel, formatBearing, formatElevation, formatRange,
+  formatRate, isMeasuredRange, rangeTitle, rateTitle, trackTime,
   type TrackEvent,
 } from '../trackLog';
 
@@ -53,9 +54,14 @@ export default function TrackLog({ events, connected }: Props) {
         </span>
       </div>
 
+      {/* BRG/ELEV/RNG together answer "where is it"; RATE answers "which way is
+          it going". RNG is titled EST because every range this tower can
+          produce today is an estimate, and a column header is the cheapest
+          place to say so once instead of per row. */}
       <div className="tracklog-cols" aria-hidden="true">
         <span>TIME</span><span>CAM</span><span>EVENT</span><span>DETAIL</span>
         <span className="r">BRG</span><span className="r">ELEV</span>
+        <span className="r">EST RNG</span><span className="r">°/S</span>
       </div>
 
       <div className="tracklog-rows" ref={rowsRef} onScroll={onScroll} role="log" aria-live="polite">
@@ -79,6 +85,18 @@ export default function TrackLog({ events, connected }: Props) {
             <span className="d" title={e.detail}>{e.detail}</span>
             <span className="b">{formatBearing(e.bearingDeg)}</span>
             <span className="v">{formatElevation(e.elevationDeg)}</span>
+            {/* Dimmed unless the range was actually measured. The "~" already
+                says it, but colour carries it at a glance, which is how a log
+                gets read. */}
+            <span
+              className={`g${e.rangeM != null && !isMeasuredRange(e.rangeSource) ? ' est' : ''}`}
+              title={rangeTitle(e.rangeM, e.rangeSource)}
+            >
+              {formatRange(e.rangeM, e.rangeSource)}
+            </span>
+            <span className="w" title={rateTitle(e.bearingRateDegS)}>
+              {formatRate(e.bearingRateDegS)}
+            </span>
           </div>
         ))}
       </div>

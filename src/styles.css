@@ -232,7 +232,13 @@ body {
 
 /* ---- console layout ---- */
 .console {
-  flex: 1; display: grid; grid-template-columns: 1fr 330px;
+  /* 440px, not the original 330: the track log now carries four numeric
+     columns (BRG ELEV RNG RATE). The arithmetic, so the next person changing a
+     column width knows what it costs - fixed columns 298px + 7 gaps at 5px +
+     22px padding = 355px, leaving DETAIL ~85px, which is about 13 characters
+     of the monospace face. Below ~400px DETAIL starts clipping mid-word on
+     ordinary rows like "seen . not tracking". */
+  flex: 1; display: grid; grid-template-columns: 1fr 440px;
   gap: 14px; padding: 14px 18px 18px; min-height: 0; position: relative;
   overflow: hidden;
 }
@@ -1028,7 +1034,13 @@ body {
 /* One grid definition, shared by the header and the rows, so a column can
    never drift between the two. */
 .tracklog-cols,.tracklog-row{display:grid;
-  grid-template-columns:52px 30px 62px minmax(0,1fr) 44px 40px;gap:6px}
+  /* Four numeric columns now: BRG ELEV RNG RATE. DETAIL keeps minmax(0,1fr) so
+     it absorbs whatever is left and truncates rather than pushing the numbers
+     off the edge - the numbers are the scannable part. Widths reclaimed partly
+     from the rail (330 -> 412px) and partly from DETAIL, which no longer
+     carries x/y offsets: the target's real bearing and elevation replaced
+     them. */
+  grid-template-columns:50px 26px 56px minmax(0,1fr) 40px 38px 48px 40px;gap:5px}
 .tracklog-cols{padding:6px 11px;border-bottom:1px solid rgba(255,255,255,.06);
   font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:7.5px;letter-spacing:.1em;color:#5f6673}
 .tracklog-cols .r{text-align:right}
@@ -1124,3 +1136,15 @@ body {
    viewport it keeps enough rows to be worth reading rather than collapsing to
    a sliver as the block above grows. */
 .tracklog { min-height: 210px; }
+
+/* ---- track log: range + rate columns ------------------------------------
+   .g is range, .w is bearing rate. Both tabular so the digits line up in a
+   column that gets scanned vertically rather than read. */
+.tracklog-row .g,.tracklog-row .w{
+  text-align:right;font-variant-numeric:tabular-nums;color:#9aa4b2}
+/* An ESTIMATED range is dimmed and italic. The "~" states it, this makes it
+   visible without reading - and every range the tower can produce today is an
+   estimate, so this is the normal case, not the exception. */
+.tracklog-row .g.est{color:#6e7686;font-style:italic;opacity:.8}
+.tracklog-row .w{color:#8f9bb0}
+.tracklog-cols .r{text-align:right}
