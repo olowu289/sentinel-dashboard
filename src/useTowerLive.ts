@@ -5,7 +5,7 @@ import type { Camera, AlertEvent } from './types';
 import { useTower } from './towerContext';
 import type { TowerConfig } from './towerClient';
 import { localWhepUrl } from './videoSourceMode';
-import { alertToEvent } from './alerts';
+import { alertToEvent, trackEventToAlert } from './alerts';
 import { parseTrackEvent, TRACK_LOG_MAX, type TrackEvent } from './trackLog';
 import { formatApiError } from './util';
 
@@ -309,6 +309,13 @@ export function useTowerLive(deviceId: string, selectedCamId?: string, ptzEnable
             const next = prev.concat(track);
             return next.length > TRACK_LOG_MAX ? next.slice(next.length - TRACK_LOG_MAX) : next;
           });
+          // A track event that crossed a threshold IS an alert - the same
+          // event, not a copy of it, which is why it is promoted here from the
+          // one message rather than sent twice by the tower. Info-level rows
+          // are not promoted: several a second would bury the alerts view.
+          if (track.severity !== 'info') {
+            setAlerts((prev) => [trackEventToAlert(track), ...prev].slice(0, 200));
+          }
           return;
         }
 

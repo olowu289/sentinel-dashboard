@@ -56,6 +56,16 @@ export interface TrackEvent {
    *  camera can measure without a range. Negative is anticlockwise (bearing
    *  falling). null while the mount is slewing or the track is new. */
   bearingRateDegS: number | null;
+  /** Where the CAMERA was aimed, as opposed to where the target was. The two
+   *  differ by up to half a field of view, and keeping both is what stopped
+   *  them being conflated again. */
+  cameraBearingDeg: number | null;
+  /** Detector confidence 0-1, and the class or track identifier. */
+  conf: number | null;
+  label: string | null;
+  /** The engine frame this was computed from — the same number burned into
+   *  the annotated stream, so a log line can be tied to a specific picture. */
+  frameSeq: number | null;
   ts: string;
 }
 
@@ -110,6 +120,10 @@ export function parseTrackEvent(raw: unknown): TrackEvent | null {
       ? (r.range_source as RangeSource)
       : null,
     bearingRateDegS: num(r.bearing_rate_deg_s),
+    cameraBearingDeg: num(r.camera_bearing_deg),
+    conf: num(r.conf),
+    label: typeof r.label === 'string' ? r.label : null,
+    frameSeq: num(r.frame_seq),
     ts: typeof r.ts === 'string' ? r.ts : new Date().toISOString(),
   };
 }

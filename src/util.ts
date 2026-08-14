@@ -96,9 +96,36 @@ export function alertColor(level: AlertLevel): string {
   return level === 'bad' ? colors.offline : level === 'warn' ? colors.standby : colors.online;
 }
 
-/** Distinct (camera, class) detection incidents still open — the alerts
- * bell badge. `alerts` is stored newest-first, so walk it in reverse to
- * replay raised/refreshed/cleared in the order they actually happened. */
+/**
+ * The alerts bell badge: open detection incidents, plus unread track alerts.
+ *
+ * The two are counted differently because they ARE different. A detection
+ * incident has raise/clear semantics, so what matters is how many are still
+ * open. A track alert - an RF cue, a target lost - is a point in time that
+ * never clears, so counting them the same way would only ever grow. They are
+ * counted as UNREAD instead: newer than the last time the operator opened this
+ * view, which is the question the badge is really answering.
+ *
+ * Before this, the badge counted detections only. Track alerts reached the
+ * alerts view but nothing on the bell changed, so an RF cue - the whole point
+ * of which is to tell you about something before a camera can see it - arrived
+ * completely silently.
+ */
+export function alertBadgeCount(alerts: AlertEvent[], seenAtMs: number): number {
+  let unreadTrack = 0;
+  for (const a of alerts) {
+    if (a.type !== 'track') continue;
+    const t = a.timestampUtc ? Date.parse(a.timestampUtc) : NaN;
+    // An unparseable timestamp counts as unread. Silently dropping it would
+    // hide exactly the event the badge exists to surface.
+    if (Number.isNaN(t) || t > seenAtMs) unreadTrack++;
+  }
+  return openDetectionIncidentCount(alerts) + unreadTrack;
+}
+
+/** Distinct (camera, class) detection incidents still open. `alerts` is stored
+ * newest-first, so walk it in reverse to replay raised/refreshed/cleared in the
+ * order they actually happened. */
 export function openDetectionIncidentCount(alerts: AlertEvent[]): number {
   const open = new Set<string>();
   for (let i = alerts.length - 1; i >= 0; i--) {

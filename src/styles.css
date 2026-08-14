@@ -1148,3 +1148,39 @@ body {
 .tracklog-row .g.est{color:#6e7686;font-style:italic;opacity:.8}
 .tracklog-row .w{color:#8f9bb0}
 .tracklog-cols .r{text-align:right}
+
+/* ---- track events in the alerts view ------------------------------------
+   The same event the log showed, with the room the log did not have. The log
+   is a scannable rail; this is where someone reconstructs what happened. */
+.ai.trk .trk-cam{
+  font-size:10px; letter-spacing:.1em; color:oklch(.68 .02 260); margin-left:9px;
+  font-weight:600;
+}
+.ai.trk .trk-mean{
+  font-size:12.5px; color:oklch(.72 .02 260); margin:3px 0 9px; line-height:1.45;
+}
+.ai.trk .trk-grid{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr));
+  gap:8px 14px; margin-bottom:8px;
+}
+.ai.trk .trk-grid > div{display:flex; flex-direction:column; gap:2px}
+.ai.trk .trk-grid span{
+  font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:8.5px;
+  letter-spacing:.13em; color:oklch(.58 .02 260);
+}
+.ai.trk .trk-grid b{
+  font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:14px; font-weight:600;
+  font-variant-numeric:tabular-nums; color:oklch(.88 .02 260);
+}
+/* An estimated range is dimmed and italic here for the same reason it is in
+   the log: the tilde states it, this makes it visible without reading. */
+.ai.trk .trk-grid b.est{color:oklch(.62 .03 260); font-style:italic}
+.ai.trk .trk-caveat{
+  font-size:11.5px; line-height:1.5; color:oklch(.62 .03 70);
+  border-left:2px solid oklch(.55 .09 70); padding-left:9px; margin:0 0 8px;
+}
+.ai.trk .trk-prov{
+  display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:8px;
+  font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:10px;
+  letter-spacing:.06em; color:oklch(.55 .02 260);
+}

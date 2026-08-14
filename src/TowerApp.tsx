@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTowerLive } from './useTowerLive';
 import { useTower } from './towerContext';
-import { openDetectionIncidentCount } from './util';
+import { alertBadgeCount } from './util';
 import DashboardConsole from './components/DashboardConsole';
 import RecordingsView from './components/RecordingsView';
 import SensorsView from './components/SensorsView';
@@ -69,7 +69,19 @@ export default function TowerApp() {
     }
   }, [live.cameras, selectedCamId]);
 
-  const alertBadge = useMemo(() => openDetectionIncidentCount(live.alerts), [live.alerts]);
+  // When the operator last had the alerts view open. Track alerts newer than
+  // this count as unread on the bell; opening the view clears them.
+  const [alertsSeenAt, setAlertsSeenAt] = useState(() => Date.now());
+  useEffect(() => {
+    if (view !== 'alerts') return;
+    // Stamped on entry AND on every new alert while the view is open, so an
+    // alert arriving while it is being read does not re-badge the moment the
+    // operator navigates away.
+    setAlertsSeenAt(Date.now());
+  }, [view, live.alerts]);
+
+  const alertBadge = useMemo(
+    () => alertBadgeCount(live.alerts, alertsSeenAt), [live.alerts, alertsSeenAt]);
 
   const cue = live.targetCueAlert;
   const cueActive = !!cue && now < cue.receivedAtMs + cue.holdSeconds * 1000 + TARGET_CUE_GRACE_MS;
