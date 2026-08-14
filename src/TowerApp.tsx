@@ -108,25 +108,28 @@ export default function TowerApp() {
           </div>
         )}
 
-        {view === 'live' && (
-          <DashboardConsole
-            deviceId=""
-            deviceLabel={label}
-            view={view}
-            onSelectView={setView}
-            selectedCamId={selectedCamId}
-            onSelectCamId={setSelectedCamId}
-            streams={live.streams}
-            status={live.status}
-            connected={live.connected}
-            linkError={live.linkError}
-            cameras={live.cameras}
-            trackEvents={live.trackEvents}
-            trackConnected={live.trackConnected}
-            recording={live.recording}
-            setRecordingLocal={live.setRecordingLocal}
-          />
-        )}
+        {/* Always mounted. Unmounting tore down every video element and
+            rebuilt it on return — see DashboardConsole's `active` prop. The
+            engine tiles each sit on their own port, so holding them open does
+            not contend for the browser's 6-connections-per-host limit. */}
+        <DashboardConsole
+          active={view === 'live'}
+          deviceId=""
+          deviceLabel={label}
+          view={view}
+          onSelectView={setView}
+          selectedCamId={selectedCamId}
+          onSelectCamId={setSelectedCamId}
+          streams={live.streams}
+          status={live.status}
+          connected={live.connected}
+          linkError={live.linkError}
+          cameras={live.cameras}
+          trackEvents={live.trackEvents}
+          trackConnected={live.trackConnected}
+          recording={live.recording}
+          setRecordingLocal={live.setRecordingLocal}
+        />
 
         {view === 'recordings' && (
           <RecordingsView view={view} onSelectView={setView} deviceLabel={label} />

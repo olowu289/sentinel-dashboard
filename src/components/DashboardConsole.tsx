@@ -104,12 +104,27 @@ interface Props {
   trackConnected: boolean;
   recording: RecordingStatus | null;
   setRecordingLocal: (s: RecordingStatus | null) => void;
+  /**
+   * Whether the live wall is the view on screen.
+   *
+   * The console stays MOUNTED when it is not — it hides itself instead. It
+   * used to be unmounted by TowerApp, which destroyed every video element on
+   * the way out and rebuilt them on the way back: new connections, a fresh
+   * handshake, first frame from cold, and every per-tile DETECT toggle reset.
+   * That is the "it reloads every time I come back" behaviour.
+   *
+   * Hidden here rather than by a wrapper in TowerApp because `.fleet-main >
+   * .app` is a direct-child selector — a wrapper would stop it matching and
+   * silently break the layout, and `display:contents` does not help since it
+   * changes the box tree, not selector matching.
+   */
+  active?: boolean;
 }
 
 export default function DashboardConsole({
   deviceId, deviceLabel, view, onSelectView,
   selectedCamId, onSelectCamId, streams, status, connected, linkError, cameras,
-  trackEvents, trackConnected, recording, setRecordingLocal,
+  trackEvents, trackConnected, recording, setRecordingLocal, active = true,
 }: Props) {
   const { client } = useTower();
   const sensors = useMemo(() => buildSensors(status, streams, cameras), [status, streams, cameras]);
@@ -504,7 +519,10 @@ export default function DashboardConsole({
   const utc = formatClockUTC1(now);
 
   return (
-    <div className="app">
+    // hidden, not unmounted — see the `active` prop. The streams stay
+    // connected underneath, so returning to the wall is instant instead of a
+    // cold restart.
+    <div className="app" style={active ? undefined : { display: 'none' }}>
       <header className="topbar">
         <div className="topbar-brand-group">
           <span className="wordmark">SENTINEL</span>
