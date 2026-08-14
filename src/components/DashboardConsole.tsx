@@ -7,7 +7,7 @@ import { colors, font } from '../tokens';
 import { formatClockUTC1 } from '../clock';
 import { errCode, formatApiError, linkStatusLabel } from '../util';
 import { buildSensors } from '../sensors';
-import { formatAzimuth, formatElevation, formatZoom, NO_DATA } from '../ptzMetrics';
+import { formatAzimuth, formatElevation, formatZoom } from '../ptzMetrics';
 import type { RailView } from './Rail';
 import TowerFeed from './TowerFeed';
 import { useTower } from '../towerContext';
@@ -500,7 +500,6 @@ export default function DashboardConsole({
           moving: selectedCam.ptzMoving === true, live: true,
         }
       : null);
-  const ptzSource = localPtz ? 'cable' : (ptzReadout ? 'platform' : null);
 
   const utc = formatClockUTC1(now);
 
@@ -579,7 +578,10 @@ export default function DashboardConsole({
             <div className="control-head">
               <div>
                 <div className="control-cap">CAMERA UNDER CONTROL</div>
-                <div className="control-title">{selectedCam.label}</div>
+                <div className="control-title">
+                  {selectedCam.label}
+                  {ptzReadout?.moving && <span className="control-slewing">SLEWING</span>}
+                </div>
               </div>
               <button
                 type="button"
@@ -602,44 +604,23 @@ export default function DashboardConsole({
               <Readout k="STREAM" v={selectedCam.status === 'ONLINE' ? 'LIVE' : selectedCam.status} accent={selectedCam.status === 'ONLINE'} />
             </div>
 
-            <div
-              style={{
-                fontFamily: font.mono, fontSize: 10, letterSpacing: '0.06em',
-                color: ptzSource ? colors.textCaption : colors.offline,
-                display: 'flex', gap: 6, alignItems: 'center',
-              }}
-              title={
-                ptzSource === 'cable' ? 'Position read directly from the tower over the LAN'
-                : ptzSource === 'platform' ? 'Position via the platform — slower, and only as fresh as its 3s poll'
-                : 'No position link — the values above are unavailable, not zero'
-              }
-            >
-              <span>POSITION</span>
-              <span style={{ color: ptzSource === 'cable' ? ACCENT : undefined }}>
-                {ptzSource === 'cable' ? 'CABLE' : ptzSource === 'platform' ? 'PLATFORM' : NO_DATA}
-              </span>
-              {ptzReadout?.moving && <span style={{ color: ACCENT }}>· SLEWING</span>}
-            </div>
-
-            {/* Which optic the pad actually moves. A dome shows two tiles and
-                only one of them can be driven — selecting the fixed view and
-                wondering why the picture will not move is a mistake worth
-                designing out rather than explaining. */}
-            <div
-              style={{
-                fontFamily: font.mono, fontSize: 10, letterSpacing: '0.06em',
-                color: colors.textCaption, display: 'flex', gap: 6, alignItems: 'center',
-              }}
-              title={
-                selectedCam.ptzCapable
-                  ? 'The pad drives this camera'
-                  : 'This is the fixed optic — it cannot move. The pad drives the PTZ optic of the same camera.'
-              }
-            >
-              <span>PAD DRIVES</span>
-              <span style={{ color: ACCENT }}>CAM {String(selectedCam.unit).padStart(2, '0')} · PTZ</span>
-              {!selectedCam.ptzCapable && <span>· viewing FIXED</span>}
-            </div>
+            {/* Which optic the pad actually moves — shown ONLY when it is not
+                this tile. A dome shows two tiles and only one can be driven, so
+                selecting the fixed view and wondering why the picture will not
+                move is a real mistake; but on the PTZ tile the line said
+                nothing and cost a row of height the track log needed. */}
+            {!selectedCam.ptzCapable && (
+              <div
+                style={{
+                  fontFamily: font.mono, fontSize: 9.5, letterSpacing: '0.06em',
+                  color: colors.standby, display: 'flex', gap: 6, alignItems: 'center',
+                }}
+                title="This is the fixed optic — it cannot move. The pad drives the PTZ optic of the same camera."
+              >
+                <span>VIEWING FIXED · PAD DRIVES</span>
+                <span style={{ color: ACCENT }}>CAM {String(selectedCam.unit).padStart(2, '0')} · PTZ</span>
+              </div>
+            )}
 
             <button
               type="button"
@@ -673,22 +654,17 @@ export default function DashboardConsole({
                 AI TRACKING
               </span>
               <span className="rec-row-state">
-                {aiTrackingBusy ? '…' : aiTracking.armed ? 'ARMED' : 'OFF'}
+                {aiTrackingBusy ? '…'
+                  : aiTracking.armed ? 'ARMED'
+                  : !aiTracking.engine_connected ? 'NO ENGINE'
+                  : 'OFF'}
               </span>
             </button>
-            <div style={{ marginTop: -4, marginBottom: 2, fontFamily: font.mono, fontSize: 9, color: colors.textCaption }}>
-              autonomous camera-follow — not the tile's "AI" overlay button
-            </div>
-            {!aiTracking.armed && aiTracking.tracking_capable && !aiTracking.engine_connected && (
-              <div style={{ marginTop: -6, fontFamily: font.mono, fontSize: 9, color: colors.textCaption }}>
-                detection engine not connected
-              </div>
-            )}
 
             <div style={{ minHeight: 14, fontFamily: font.mono, fontSize: 10, color: ptzMsg.includes('failed') ? colors.offline : colors.textCaption }}>{ptzMsg}</div>
             <PtzSpeedSlider value={ptzSpeedPct} onChange={(pct) => { setPtzSpeedPct(pct); try { localStorage.setItem(PTZ_SPEED_KEY, String(pct)); } catch { /* */ } }} accent={ACCENT} />
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <PtzPad accent={ACCENT} size="190px" onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
+              <PtzPad accent={ACCENT} size="150px" onPanStart={panStart} onPanEnd={panEnd} onRecenter={recenter} />
             </div>
             <div className="zoom-grid">
               <button
