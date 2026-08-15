@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTowerLive } from './useTowerLive';
 import { useTower } from './towerContext';
 import { alertBadgeCount } from './util';
+import SettingsModal from './components/SettingsModal';
 import DashboardConsole from './components/DashboardConsole';
 import RecordingsView from './components/RecordingsView';
 import SensorsView from './components/SensorsView';
@@ -34,6 +35,7 @@ function initials(label: string): string {
 export default function TowerApp() {
   const { client } = useTower();
   const [view, setView] = useState<RailView>('live');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [selectedCamId, setSelectedCamId] = useState('01');
   const [label, setLabel] = useState('TOWER');
@@ -98,6 +100,15 @@ export default function TowerApp() {
         onSelectView={setView}
         initials={initials(label)}
         alertBadge={alertBadge}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+
+      {/* Floats over whatever is on screen. The live wall keeps streaming
+          underneath — it is not unmounted (see DashboardConsole's `active`). */}
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        towers={[{ id: '', label }]}
       />
 
       <div className="fleet-main">

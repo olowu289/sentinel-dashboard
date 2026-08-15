@@ -1184,3 +1184,147 @@ body {
   font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:10px;
   letter-spacing:.06em; color:oklch(.55 .02 260);
 }
+
+/* ===== Settings modal ====================================================
+   A floating panel, not a page. The wall behind it keeps running, which is
+   the entire reason it is a modal: an operator changing a setting should not
+   have to stop watching the site to do it. */
+.modal-scrim{
+  position:fixed; inset:0; z-index:120; display:flex; align-items:center; justify-content:center;
+  background:rgba(4,6,9,.72); backdrop-filter:blur(3px); padding:24px;
+}
+.modal{
+  width:min(940px,100%); max-height:min(760px,92vh); display:flex; flex-direction:column;
+  background:#0f1216; border:1px solid #232a33; border-radius:12px; outline:none;
+  box-shadow:0 24px 70px rgba(0,0,0,.6);
+}
+.modal-head{
+  display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
+  padding:20px 22px 16px; border-bottom:1px solid #1c232b;
+}
+.modal-head h2{margin:0; font-size:19px; letter-spacing:-.01em; color:oklch(.94 .01 260)}
+.modal-head p{margin:3px 0 0; font-size:12.5px; color:oklch(.62 .02 260)}
+.modal-x{
+  background:none; border:none; color:oklch(.62 .02 260); font-size:24px; line-height:1;
+  cursor:pointer; padding:2px 8px; border-radius:6px;
+}
+.modal-x:hover{background:rgba(255,255,255,.06); color:oklch(.9 .01 260)}
+.modal-body{display:grid; grid-template-columns:172px 1fr; min-height:0; flex:1}
+.modal-nav{
+  display:flex; flex-direction:column; gap:2px; padding:14px 10px;
+  border-right:1px solid #1c232b; overflow-y:auto;
+}
+.modal-nav button{
+  text-align:left; background:none; border:none; cursor:pointer; border-radius:7px;
+  padding:9px 12px; font-size:13.5px; color:oklch(.68 .02 260); font-family:inherit;
+}
+.modal-nav button:hover{background:rgba(255,255,255,.05); color:oklch(.9 .01 260)}
+.modal-nav button.on{background:rgba(255,255,255,.08); color:oklch(.95 .01 260); font-weight:600}
+.modal-pane{padding:18px 22px 24px; overflow-y:auto; min-height:0}
+
+.tower-pick{
+  display:flex; align-items:center; gap:10px; padding-bottom:16px; margin-bottom:18px;
+  border-bottom:1px solid #1c232b; flex-wrap:wrap;
+}
+.tower-pick span{
+  font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:9px; letter-spacing:.14em;
+  color:oklch(.55 .02 260);
+}
+.tower-pick select{
+  background:#151a20; color:oklch(.92 .01 260); border:1px solid #262e38; border-radius:7px;
+  padding:6px 10px; font-size:13.5px; font-family:inherit;
+}
+.tower-pick em{font-style:normal; font-size:11.5px; color:oklch(.5 .02 260)}
+
+.set-sec h3{margin:20px 0 8px; font-size:12px; letter-spacing:.11em; text-transform:uppercase;
+  color:oklch(.6 .02 260)}
+.set-sec h3:first-child{margin-top:0}
+.set-note{font-size:12.5px; line-height:1.55; color:oklch(.6 .02 260); margin:0 0 12px}
+.set-err{background:rgba(255,90,90,.1); border:1px solid rgba(255,90,90,.35);
+  color:oklch(.78 .12 25); border-radius:7px; padding:10px 13px; font-size:13px; margin-bottom:14px}
+
+.kv{margin:0; display:grid; gap:8px}
+.kv div{display:flex; justify-content:space-between; gap:16px; padding:9px 12px;
+  background:#141920; border:1px solid #1f262f; border-radius:7px}
+.kv dt{font-size:13.5px; color:oklch(.88 .01 260)}
+.kv dd{margin:0; font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:12.5px;
+  color:oklch(.6 .02 260)}
+
+/* ---- camera tabs + readiness ------------------------------------------ */
+.cam-tabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center}
+.cam-tabs button{
+  display:flex; align-items:center; gap:8px; cursor:pointer; font-family:inherit;
+  background:#141920; border:1px solid #232b35; border-radius:8px; padding:8px 13px;
+  font-size:13px; color:oklch(.72 .02 260);
+}
+.cam-tabs button.on{border-color:oklch(.62 .13 275); color:oklch(.95 .01 260); background:#171e28}
+.cam-tabs i{width:7px; height:7px; border-radius:50%; display:inline-block}
+.cam-tabs i.ok{background:oklch(.72 .17 150)}
+.cam-tabs i.no{background:oklch(.72 .15 60)}
+
+.cam-card{background:#141920; border:1px solid #232b35; border-left:3px solid oklch(.68 .16 150);
+  border-radius:8px; padding:14px 16px; margin-bottom:16px}
+.cam-card.warn{border-left-color:oklch(.72 .15 60)}
+.cam-card-top{display:flex; flex-wrap:wrap; gap:6px 16px; align-items:baseline; margin-bottom:8px}
+.cam-card-top b{font-size:14.5px; color:oklch(.94 .01 260)}
+.cam-card-top span{font-size:12.5px; color:oklch(.62 .02 260)}
+.cam-card-top .miss{color:oklch(.74 .14 60)}
+.cam-missing,.cam-partial{margin:6px 0 0; font-size:12.5px; line-height:1.55}
+.cam-missing{color:oklch(.76 .13 40)}
+.cam-partial{color:oklch(.6 .02 260)}
+.cam-missing b,.cam-partial b{font-weight:650}
+.cam-meta{display:flex; gap:16px; flex-wrap:wrap; margin:9px 0 0;
+  font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:11px; color:oklch(.53 .02 260)}
+
+/* ---- steps ------------------------------------------------------------- */
+.step-row{background:#12171d; border:1px solid #1f262f; border-radius:8px; margin-bottom:9px;
+  padding:13px 15px}
+.step-main{display:grid; grid-template-columns:30px 1fr auto; gap:14px; align-items:start}
+.step-id{font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:13px; font-weight:700;
+  color:oklch(.55 .02 260); padding-top:1px}
+.step-main b{display:block; font-size:14px; color:oklch(.92 .01 260); font-weight:650}
+.step-main p{margin:4px 0 0; font-size:12.5px; line-height:1.55; color:oklch(.6 .02 260)}
+.moves{font-style:normal; font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:oklch(.74 .14 60); margin-left:9px; font-family:'IBM Plex Mono',ui-monospace,monospace}
+.step-err{color:oklch(.74 .14 25) !important}
+.step-go{
+  background:oklch(.62 .13 275); color:#0b0d11; border:none; border-radius:7px; cursor:pointer;
+  padding:7px 16px; font-size:12.5px; font-weight:700; font-family:inherit; letter-spacing:.02em;
+}
+.step-go:disabled{background:#242b34; color:oklch(.45 .02 260); cursor:not-allowed}
+.step-args{display:flex; gap:14px; flex-wrap:wrap; margin:12px 0 0; padding-left:44px}
+.step-args label{display:flex; flex-direction:column; gap:4px}
+.step-args span{font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:8.5px;
+  letter-spacing:.13em; color:oklch(.53 .02 260)}
+.step-args input{
+  background:#0f1319; border:1px solid #262e38; border-radius:6px; padding:7px 10px;
+  color:oklch(.92 .01 260); font-size:13px; font-family:'IBM Plex Mono',ui-monospace,monospace;
+  width:150px;
+}
+.step-args .set-note{margin:0; padding-top:4px}
+
+/* ---- running step output ----------------------------------------------- */
+.job{margin-top:18px; border:1px solid #232b35; border-radius:8px; overflow:hidden}
+.job-head{display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:10px 14px; background:#151a21; border-bottom:1px solid #1f262f; flex-wrap:wrap}
+.job-head b{font-size:13px; color:oklch(.92 .01 260); font-weight:650}
+.job-live{display:flex; align-items:center; gap:7px; font-size:11px; color:oklch(.74 .14 60);
+  font-family:'IBM Plex Mono',ui-monospace,monospace; letter-spacing:.06em}
+.job-live i{width:7px; height:7px; border-radius:50%; background:oklch(.74 .14 60);
+  animation:jobpulse 1.1s ease-in-out infinite}
+@keyframes jobpulse{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.job-live i{animation:none}}
+.job-bad{font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:11px; color:oklch(.72 .15 25)}
+.job pre{
+  margin:0; padding:13px 15px; background:#0a0d11; color:oklch(.82 .01 260);
+  font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:11.5px; line-height:1.6;
+  max-height:260px; overflow:auto; white-space:pre-wrap; word-break:break-word;
+}
+
+@media (max-width:700px){
+  .modal-body{grid-template-columns:1fr}
+  .modal-nav{flex-direction:row; border-right:none; border-bottom:1px solid #1c232b; overflow-x:auto}
+  .step-main{grid-template-columns:26px 1fr}
+  .step-go{grid-column:2}
+  .step-args{padding-left:0}
+}
