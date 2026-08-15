@@ -8,6 +8,7 @@ import {
 } from '../trackLog';
 import type { AlertEvent } from '../types';
 import type { RailView } from './Rail';
+import Wordmark from './Wordmark';
 
 interface Props {
   /** The tower's own name. There is exactly one - see TowerApp. */
@@ -181,10 +182,7 @@ export default function AlertsView({
   return (
     <div className="app">
       <header className="topbar">
-        <div className="topbar-brand-group">
-          <span className="wordmark">SENTINEL</span>
-          <span className="wordmark-sub">{towerLabel}</span>
-        </div>
+        <Wordmark />
 
         {/* Not a chooser any more - the dot is a link indicator only. */}
         <div className="tower-pill" title={towerLabel}>

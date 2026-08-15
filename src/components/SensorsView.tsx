@@ -7,6 +7,7 @@ import { linkStatusLabel } from '../util';
 import { colors } from '../tokens';
 import type { Camera, Sensor } from '../types';
 import type { RailView } from './Rail';
+import Wordmark from './Wordmark';
 
 interface Props {
   /** The tower's own name. There is exactly one - see TowerApp. */
@@ -98,10 +99,7 @@ export default function SensorsView({
   return (
     <div className="app">
       <header className="topbar">
-        <div className="topbar-brand-group">
-          <span className="wordmark">SENTINEL</span>
-          <span className="wordmark-sub">{towerLabel}</span>
-        </div>
+        <Wordmark />
 
         {/* Not a chooser any more - the dot is a link indicator only. */}
         <div className="tower-pill" title={towerLabel}>

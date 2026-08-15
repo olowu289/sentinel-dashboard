@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { formatClockUTC1, formatDateTimeUTC1, formatBytes } from '../clock';
 import { useRecordings } from '../useRecordings';
 import type { RailView } from './Rail';
+import Wordmark from './Wordmark';
 
 const PAGE_SIZE = 24;
 
@@ -51,10 +52,7 @@ export default function RecordingsView({
   return (
     <div className="recordings-view">
       <header className="topbar">
-        <div className="topbar-brand-group">
-          <span className="wordmark">SENTINEL</span>
-          <span className="wordmark-sub">{towerLabel}</span>
-        </div>
+        <Wordmark />
 
         {/* Not a chooser any more - there is one tower and this is it. */}
         <div className="tower-pill" title={towerLabel}>

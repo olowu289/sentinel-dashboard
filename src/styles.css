@@ -175,9 +175,24 @@ body {
   background: #0a0b0e;
   border-bottom: 1px solid rgba(255, 255, 255, .06);
 }
-.topbar-brand-group { display: flex; align-items: baseline; gap: 10px; flex: none; }
-.wordmark { font-size: 15px; font-weight: 600; letter-spacing: .14em; color: #e6e8ec; }
-.wordmark-sub { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #6d7482; letter-spacing: .08em; }
+/* The wordmark is a two-line lockup: the name, and a lighter, smaller word
+   beneath it. Stacked rather than side by side, and sharing the wordmark's own
+   face rather than the console's mono, so it reads as one mark instead of a
+   label with a caption. The tower's name used to sit in the second line; it is
+   still in the pill immediately to the right, so nothing was lost. */
+.topbar-brand-group {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 2px; flex: none; line-height: 1;
+}
+.wordmark { font-size: 15px; font-weight: 700; letter-spacing: .16em; color: #e6e8ec; line-height: 1.05; }
+.wordmark-sub {
+  font-size: 9.5px; font-weight: 400; letter-spacing: .3em;
+  color: #7d8593; line-height: 1;
+  /* Optical, not measured: the tracking pushes the word out under the name
+     without stretching it to the full width, which at this size reads as a
+     mistake rather than as alignment. */
+  padding-left: 1px;
+}
 
 .tower-pill {
   display: inline-flex; align-items: center; gap: 8px; flex: none;
@@ -900,7 +915,8 @@ body {
    bottom sheet instead of squeezing the grid, header allowed to wrap. ---- */
 @media (max-width: 767px) {
   .topbar { flex-wrap: wrap; height: auto; row-gap: 8px; padding: 12px 14px; gap: 12px; }
-  .topbar-brand-group { flex-wrap: wrap; row-gap: 4px; min-width: 0; }
+  /* Already a column - it only needs to stop being allowed to grow. */
+  .topbar-brand-group { min-width: 0; }
   .topbar-end-group { gap: 10px; margin-left: 0; }
 
   .console { padding: 10px 12px; gap: 10px; }

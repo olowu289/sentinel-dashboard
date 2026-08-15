@@ -22,6 +22,7 @@ import { localPtzMove, localPtzStop, localPtzStatus, localPtzKeepalive } from '.
 import { subscribeAiTracking, setAiTrackingArmed } from '../aiTrackingState';
 import type { AiTrackingState } from '../aiTrackingApi';
 import type { TrackEvent } from '../trackLog';
+import Wordmark from './Wordmark';
 
 const ACCENT = colors.accent;
 /**
@@ -524,10 +525,7 @@ export default function DashboardConsole({
     // cold restart.
     <div className="app" style={active ? undefined : { display: 'none' }}>
       <header className="topbar">
-        <div className="topbar-brand-group">
-          <span className="wordmark">SENTINEL</span>
-          <span className="wordmark-sub">{deviceLabel}</span>
-        </div>
+        <Wordmark />
 
         <button type="button" className="tower-pill" title={linkLabel}>
           <span className={`tower-pill-dot${connected ? ' live' : ''}`} style={{ background: linkColor, color: linkColor }} />
