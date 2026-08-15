@@ -41,6 +41,13 @@ export interface CameraCalibration {
   missing_optional: string[];
   north_offset_deg: number | null;
   north_method: string | null;
+  /** The sector currently assigned, as "low:high" true bearings, or null if
+   *  none is. Null rather than a default on purpose - a field pre-filled with
+   *  a value that is NOT what is stored is worse than an empty one, because
+   *  re-running would silently reset a deliberate choice. */
+  assigned_sector: string | null;
+  assigned_tilt: string | null;
+  handoff_to: number | null;
   jac_at_focal_mm: number | null;
   pan_sd_pct: number | null;
   tilt_sd_pct: number | null;

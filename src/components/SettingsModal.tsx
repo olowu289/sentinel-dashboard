@@ -181,7 +181,8 @@ function CalibrationPanel() {
           </p>
           {status.steps.map((s) => (
             <StepRow
-              key={s.id} step={s} camera={cam.camera} busy={busy}
+              key={`${s.id}-${cam.camera}`} step={s} camera={cam.camera} busy={busy}
+              cam={cam}
               done={cam.updated[s.writes]}
               // Which OTHER steps have run, so this row can say what it is
               // waiting for by name rather than just refusing.
@@ -248,17 +249,22 @@ function whenDone(at?: string): string {
     : `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-function StepRow({ step, camera, busy, done, doneKeys, allSteps, onStarted }: {
+function StepRow({ step, camera, cam, busy, done, doneKeys, allSteps, onStarted }: {
   step: import('../calibrationApi').CalibrationStep;
-  camera: number; busy: boolean;
+  camera: number;
+  cam: import('../calibrationApi').CameraCalibration;
+  busy: boolean;
   done?: { at?: string; by?: string };
   doneKeys: Set<string>;
   allSteps: import('../calibrationApi').CalibrationStep[];
   onStarted: () => void;
 }) {
   const needs = STEP_NEEDS_INPUT[step.id];
-  const [sector, setSector] = useState('0:360');
-  const [tilt, setTilt] = useState('-5:90');
+  // Seeded from what the tower actually has. Only when nothing is assigned
+  // does a starting suggestion appear - and the row says which it is showing,
+  // so "0:360" is never mistaken for a stored value it is not.
+  const [sector, setSector] = useState(cam.assigned_sector ?? '0:360');
+  const [tilt, setTilt] = useState(cam.assigned_tilt ?? '-5:90');
   const [err, setErr] = useState('');
   const [confirming, setConfirming] = useState(false);
 
@@ -355,11 +361,18 @@ function StepRow({ step, camera, busy, done, doneKeys, allSteps, onStarted }: {
         </div>
       )}
       {needs === 'sector' && (
-        <div className="step-args">
+        <div className="step-args sector-args">
           <label><span>SECTOR (TRUE BEARINGS)</span>
             <input value={sector} onChange={(e) => setSector(e.target.value)} placeholder="0:360" /></label>
-          <label><span>TILT RANGE</span>
+          <label><span>TILT RANGE (DOWN-POSITIVE)</span>
             <input value={tilt} onChange={(e) => setTilt(e.target.value)} placeholder="-5:90" /></label>
+          <p className="set-note sector-note">
+            {cam.assigned_sector
+              ? <>Currently <b>{cam.assigned_sector}</b>{cam.assigned_tilt && <> · tilt <b>{cam.assigned_tilt}</b></>}
+                 {cam.handoff_to != null && <> · hands over to camera {cam.handoff_to}</>}.
+                 Edit and re-run to change it.</>
+              : <>Nothing assigned yet — the values shown are a starting suggestion, not stored.</>}
+          </p>
         </div>
       )}
       {needs === 'home' && (

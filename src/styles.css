@@ -1355,3 +1355,9 @@ body {
 }
 .step-cancel:hover{background:rgba(255,255,255,.05)}
 @media (max-width:700px){.step-confirm{max-width:none; grid-column:1/-1}}
+
+/* ---- sector assignment: fields plus what is actually stored ------------- */
+.sector-args{flex-wrap:wrap}
+.sector-note{flex-basis:100%; margin:2px 0 0 !important; max-width:56ch}
+.sector-note b{color:oklch(.88 .01 260); font-weight:650;
+  font-family:'IBM Plex Mono',ui-monospace,monospace}
