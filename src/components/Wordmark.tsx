@@ -10,7 +10,7 @@ export default function Wordmark() {
   return (
     <div className="topbar-brand-group">
       <span className="wordmark">BAYANA</span>
-      <span className="wordmark-sub">watch</span>
+      <span className="wordmark-sub">WATCH</span>
     </div>
   );
 }

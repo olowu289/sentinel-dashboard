@@ -186,12 +186,14 @@ body {
 }
 .wordmark { font-size: 15px; font-weight: 700; letter-spacing: .16em; color: #e6e8ec; line-height: 1.05; }
 .wordmark-sub {
-  font-size: 9.5px; font-weight: 400; letter-spacing: .3em;
+  font-size: 11px; font-weight: 400; letter-spacing: .46em;
   color: #7d8593; line-height: 1;
-  /* Optical, not measured: the tracking pushes the word out under the name
-     without stretching it to the full width, which at this size reads as a
-     mistake rather than as alignment. */
-  padding-left: 1px;
+  /* .46em is chosen so WATCH spans almost exactly the width of BAYANA above
+     it - compared against .30em and .62em rendered side by side. Landing
+     short of the name looks like the word ran out; landing level with it
+     reads as a lockup. The trailing letter-space is trimmed so the optical
+     left edge still lines up with the B. */
+  padding-left: 1px; margin-right: -.46em;
 }
 
 .tower-pill {
