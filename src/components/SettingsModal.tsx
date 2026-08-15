@@ -175,12 +175,18 @@ function CalibrationPanel() {
         <>
           <h3>Steps</h3>
           <p className="set-note">
-            Run these in order. Each writes only its own part of the calibration, so a single
-            step can be re-run without discarding the rest.
+            Numbered in the order to run them, but only where a step says otherwise is it
+            actually waiting on another — 01 to 05 are independent. Each writes only its own
+            part, so any one can be re-run without discarding the rest.
           </p>
           {status.steps.map((s) => (
             <StepRow
               key={s.id} step={s} camera={cam.camera} busy={busy}
+              done={cam.updated[s.writes]}
+              // Which OTHER steps have run, so this row can say what it is
+              // waiting for by name rather than just refusing.
+              doneKeys={new Set(Object.keys(cam.updated))}
+              allSteps={status.steps}
               onStarted={() => void fetchCalibrationJob().then(setJob)}
             />
           ))}
@@ -228,18 +234,47 @@ function CameraStatus({ cam }: { cam: import('../calibrationApi').CameraCalibrat
   );
 }
 
-function StepRow({ step, camera, busy, onStarted }: {
+/** HH:MM on the day it ran, or the date if it was not today. A calibration
+ *  measured months ago is a different fact from one measured this morning. */
+function whenDone(at?: string): string {
+  if (!at) return '';
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return sameDay
+    ? `today ${p(d.getHours())}:${p(d.getMinutes())}`
+    : `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function StepRow({ step, camera, busy, done, doneKeys, allSteps, onStarted }: {
   step: import('../calibrationApi').CalibrationStep;
-  camera: number; busy: boolean; onStarted: () => void;
+  camera: number; busy: boolean;
+  done?: { at?: string; by?: string };
+  doneKeys: Set<string>;
+  allSteps: import('../calibrationApi').CalibrationStep[];
+  onStarted: () => void;
 }) {
   const needs = STEP_NEEDS_INPUT[step.id];
   const [bearing, setBearing] = useState('');
   const [sector, setSector] = useState('0:360');
   const [tilt, setTilt] = useState('-5:90');
   const [err, setErr] = useState('');
+  const [confirming, setConfirming] = useState(false);
+
+  const label = (id: string) => allSteps.find((x) => x.id === id)?.label ?? id;
+  // Blocking: the tower itself refuses these, so pressing Run would spend a
+  // minute driving the camera to produce an error we could have predicted.
+  const blockedBy = step.requires.filter(
+    (r) => !doneKeys.has(allSteps.find((x) => x.id === r)?.writes ?? ''));
+  // Advisory: the step will run, but a check it should make will be skipped.
+  const advisedBy = step.recommends.filter(
+    (r) => !doneKeys.has(allSteps.find((x) => x.id === r)?.writes ?? ''));
+  const isDone = !!done;
 
   const start = async () => {
-    setErr('');
+    setErr(''); setConfirming(false);
     const args: Record<string, unknown> = {};
     if (needs === 'bearing') args.bearing = Number(bearing);
     if (needs === 'home') args.here = true;
@@ -253,9 +288,10 @@ function StepRow({ step, camera, busy, onStarted }: {
   };
 
   const ready = needs !== 'bearing' || (bearing !== '' && Number.isFinite(Number(bearing)));
+  const disabled = busy || !ready || blockedBy.length > 0;
 
   return (
-    <div className="step-row">
+    <div className={`step-row${isDone ? ' done' : ''}${blockedBy.length ? ' blocked' : ''}`}>
       <div className="step-main">
         <div className="step-id">{step.id}</div>
         <div>
@@ -263,13 +299,47 @@ function StepRow({ step, camera, busy, onStarted }: {
             {step.label}
             {/* Said before it is pressed, not after. */}
             {step.moves_camera && <em className="moves">moves the camera</em>}
+            {isDone && <em className="donetag">done {whenDone(done?.at)}</em>}
           </b>
           <p>{STEP_HELP[step.id]}</p>
+
+          {/* Named, not just greyed out. "Disabled" without a reason is the
+              most frustrating state a control can be in. */}
+          {blockedBy.length > 0 && (
+            <p className="step-block">
+              Needs {blockedBy.map(label).join(' and ')} first — this step is refused without it.
+            </p>
+          )}
+          {blockedBy.length === 0 && advisedBy.length > 0 && (
+            <p className="step-advise">
+              Runs without {advisedBy.map(label).join(' and ')}, but a safety check is skipped.
+            </p>
+          )}
           {err && <p className="step-err">{err}</p>}
         </div>
-        <button type="button" className="step-go" disabled={busy || !ready} onClick={start}>
-          {busy ? 'busy' : 'Run'}
-        </button>
+
+        {confirming ? (
+          <div className="step-confirm">
+            <b>Run again?</b>
+            <p>This overwrites what {step.label.toLowerCase()} measured{done?.at ? ` on ${whenDone(done.at)}` : ''}.</p>
+            <div>
+              <button type="button" className="step-go" onClick={start}>Yes, run again</button>
+              <button type="button" className="step-cancel" onClick={() => setConfirming(false)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={`step-go${isDone ? ' again' : ''}`}
+            disabled={disabled}
+            // A done step asks first. Re-running is legitimate — aim somewhere
+            // better and measure again — but it DISCARDS a real measurement,
+            // and that should never happen on one stray click.
+            onClick={() => (isDone ? setConfirming(true) : void start())}
+          >
+            {busy ? 'busy' : isDone ? 'Re-run' : 'Run'}
+          </button>
+        )}
       </div>
 
       {needs === 'bearing' && (

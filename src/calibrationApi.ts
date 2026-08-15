@@ -19,6 +19,15 @@ export interface CalibrationStep {
   /** True if running it drives the mount off its current aim. Worth saying out
    *  loud before an operator presses it on a live tower. */
   moves_camera: boolean;
+  /** The provenance key this step stamps when it succeeds — how "done" is
+   *  known. It is what the step ITSELF recorded, not an assumption. */
+  writes: string;
+  /** Steps that must have run first because this one REFUSES without them.
+   *  Deliberately sparse: 01–05 have no prerequisite at all, and blocking a
+   *  step that would have worked is its own kind of wrong. */
+  requires: string[];
+  /** Steps that make this one CORRECT rather than possible. Not blocking. */
+  recommends: string[];
 }
 
 export interface CameraCalibration {

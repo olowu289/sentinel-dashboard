@@ -1328,3 +1328,30 @@ body {
   .step-go{grid-column:2}
   .step-args{padding-left:0}
 }
+
+/* ---- step state: done, blocked, re-run confirmation --------------------- */
+.step-row.done{border-color:#223a2c; background:#111a15}
+.step-row.blocked{opacity:.72}
+.donetag{
+  font-style:normal; font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:oklch(.72 .17 150); margin-left:9px;
+  font-family:'IBM Plex Mono',ui-monospace,monospace;
+}
+.step-block{color:oklch(.74 .14 60) !important}
+.step-advise{color:oklch(.66 .09 80) !important}
+.step-go.again{background:#242b34; color:oklch(.82 .01 260)}
+.step-go.again:hover:not(:disabled){background:#2d3540}
+.step-confirm{
+  background:#1a1410; border:1px solid oklch(.5 .12 60); border-radius:8px;
+  padding:12px 14px; max-width:270px;
+}
+.step-confirm b{display:block; font-size:13px; color:oklch(.86 .1 70); margin-bottom:5px}
+.step-confirm p{margin:0 0 11px !important; font-size:11.5px; line-height:1.5;
+  color:oklch(.68 .03 70) !important}
+.step-confirm div{display:flex; gap:8px}
+.step-cancel{
+  background:none; border:1px solid #333c47; border-radius:7px; cursor:pointer;
+  padding:7px 13px; font-size:12.5px; color:oklch(.7 .02 260); font-family:inherit;
+}
+.step-cancel:hover{background:rgba(255,255,255,.05)}
+@media (max-width:700px){.step-confirm{max-width:none; grid-column:1/-1}}
