@@ -257,7 +257,6 @@ function StepRow({ step, camera, busy, done, doneKeys, allSteps, onStarted }: {
   onStarted: () => void;
 }) {
   const needs = STEP_NEEDS_INPUT[step.id];
-  const [bearing, setBearing] = useState('');
   const [sector, setSector] = useState('0:360');
   const [tilt, setTilt] = useState('-5:90');
   const [err, setErr] = useState('');
@@ -276,7 +275,10 @@ function StepRow({ step, camera, busy, done, doneKeys, allSteps, onStarted }: {
   const start = async () => {
     setErr(''); setConfirming(false);
     const args: Record<string, unknown> = {};
-    if (needs === 'bearing') args.bearing = Number(bearing);
+    // "The camera is aimed at true north" IS bearing 0 - the same argument the
+    // step has always taken, and the same one a GPS heading will supply later.
+    // Nothing new is being introduced; the number has stopped being typed.
+    if (needs === 'north') args.bearing = 0;
     if (needs === 'home') args.here = true;
     if (needs === 'sector') { args.sector = sector; args.tilt = tilt; }
     try {
@@ -287,7 +289,9 @@ function StepRow({ step, camera, busy, done, doneKeys, allSteps, onStarted }: {
     }
   };
 
-  const ready = needs !== 'bearing' || (bearing !== '' && Number.isFinite(Number(bearing)));
+  // Every step can now be started by pressing Run; only 07 carries fields, and
+  // those have workable defaults.
+  const ready = true;
   const disabled = busy || !ready || blockedBy.length > 0;
 
   return (
@@ -342,13 +346,12 @@ function StepRow({ step, camera, busy, done, doneKeys, allSteps, onStarted }: {
         )}
       </div>
 
-      {needs === 'bearing' && (
+      {needs === 'north' && (
         <div className="step-args">
-          <label>
-            <span>TRUE BEARING OF WHAT IT IS AIMED AT</span>
-            <input type="number" min={0} max={360} step={0.1} value={bearing} placeholder="e.g. 47.3"
-                   onChange={(e) => setBearing(e.target.value)} />
-          </label>
+          <p className="set-note">
+            Aim the camera at true north first — its current position is recorded as 0°.
+            Everything the tower reports is measured from it.
+          </p>
         </div>
       )}
       {needs === 'sector' && (

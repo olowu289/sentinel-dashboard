@@ -110,9 +110,16 @@ export function runCalibrationStep(
   return req('POST', '/api/calibration/run', { camera, step, args });
 }
 
-/** Steps that need a decision from the operator rather than just a start. */
-export const STEP_NEEDS_INPUT: Record<string, 'bearing' | 'home' | 'sector'> = {
-  '05': 'bearing',
+/**
+ * Steps that need something from the operator beyond pressing Run.
+ *
+ * 'north' and 'home' need no typing at all - both record where the camera is
+ * ALREADY aimed. They are listed so the row can say what is about to be
+ * captured, which is the thing worth confirming before a measurement is
+ * overwritten.
+ */
+export const STEP_NEEDS_INPUT: Record<string, 'north' | 'home' | 'sector'> = {
+  '05': 'north',
   '06': 'home',
   '07': 'sector',
 };
@@ -124,7 +131,7 @@ export const STEP_HELP: Record<string, string> = {
   '02': 'Drives the mount to each end of its travel to find the real limits. Assumed limits are how a tracker ends up chasing a position the camera cannot reach.',
   '03': 'Steps through the zoom range measuring how sensitivity changes. Without it, tracking is only correct near one zoom setting.',
   '04': 'Measures how much the picture moves for a given pan and tilt. Aim at something distant with hard edges, all at a similar distance — open sky or a blank wall gives it nothing to measure.',
-  '05': 'Turns the camera’s own pan reading into a true compass bearing. Point the camera at a landmark first, then give its true bearing from the tower.',
+  '05': 'Ties the camera’s own pan reading to true north. Aim the camera at true north first — its current position is recorded as 0°, and every bearing the tower reports is measured from it.',
   '06': 'Stores where the camera returns to when idle. Aim it where you want home, then use “use current aim”.',
   '07': 'Assigns the arc of sky this camera owns, so two cameras can divide the sky and hand over between them.',
 };
